@@ -6,9 +6,10 @@
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src http: https:; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Local Media — Private media downloader</title>
-  <link rel="stylesheet" href="styles.css?v=1.1.0">
-  <script src="bridge-client.js?v=1.1.0" defer></script>
-  <script src="app.js?v=1.1.0" defer></script>
+  <link rel="stylesheet" href="styles.css?v=1.2.0">
+  <script src="extension-client.js?v=1.2.0" defer></script>
+  <script src="bridge-client.js?v=1.2.0" defer></script>
+  <script src="app.js?v=1.2.0" defer></script>
 </head>
 <body>
   <div class="shell">
@@ -19,10 +20,12 @@
         <div class="workspace-head"><h2>Download workspace</h2><span id="connection-badge" class="badge">Disconnected</span></div>
         <details id="connection-panel" open><summary>Private server connection <span aria-hidden="true">↗</span></summary>
           <form id="connection-form" class="connection-form">
+            <label for="connection-mode">Connection method</label><select id="connection-mode"><option value="extension">Chrome extension · in the background</option><option value="direct">Direct connection · local or private HTTPS</option><option value="bridge">Optional local bridge window</option></select>
+            <div id="extension-help" class="notice"><strong>One-time Chrome setup</strong><p>Download and unzip the extension. Open <code>chrome://extensions</code>, turn on Developer mode, choose <strong>Load unpacked</strong>, and select the extension folder. Reload this page after installation.</p><a class="text-button" href="extension.zip" download>Download Chrome extension</a></div>
             <label for="endpoint">Server address</label><input id="endpoint" type="url" value="http://127.0.0.1:8765" spellcheck="false" autocomplete="off" required aria-describedby="server-help">
-            <p id="server-help" class="hint">Use localhost, a private IP address, or a .local / .internal hostname. A hosted HTTPS page opens a local bridge window for HTTP localhost. Keep it open while downloading.</p>
+            <p id="server-help" class="hint">The extension connects to the companion on your machine at this fixed address, without an extra window.</p>
             <label class="check-label trust-label"><input id="trust-server" type="checkbox"> I control and trust this server (required for custom HTTPS hosts).</label>
-            <label for="token">Access token</label><input id="token" type="password" placeholder="Paste the token from your server terminal" autocomplete="off" required aria-describedby="token-help"><p id="token-help" class="hint">Kept only in this page’s memory. Never saved to browser storage.</p>
+            <label for="token">Access token</label><input id="token" type="password" placeholder="Paste the token from your server terminal" autocomplete="off" required aria-describedby="token-help"><p id="token-help" class="hint">Kept only in memory. Never saved to browser storage.</p>
             <div class="connection-actions"><button id="connect" type="submit" class="button secondary">Connect to server</button><button id="disconnect" type="button" class="text-button" hidden>Disconnect</button></div>
           </form>
         </details>

@@ -1,6 +1,9 @@
-param([switch]$Demo, [int]$Port = 8765, [string[]]$AllowOrigin = @())
+param([switch]$Demo, [switch]$ChromeExtension, [int]$Port = 8765, [string[]]$AllowOrigin = @())
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
+if ($ChromeExtension) {
+    $AllowOrigin += 'chrome-extension://ifalbjaplddiebbnbecaalonfpojnamk'
+}
 
 # Existing workspace dependencies are optional. No download/install is performed.
 $taskDeps = Join-Path $PSScriptRoot '.deps'

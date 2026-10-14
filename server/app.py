@@ -371,7 +371,7 @@ class Handler(BaseHTTPRequestHandler):
                 shutil.copyfileobj(source, self.wfile)
         except APIError as exc:
             self.json(exc.status, {"error": str(exc)})
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
         except OSError:
             self.json(404, {"error": "File no longer available."})
@@ -402,7 +402,7 @@ class Handler(BaseHTTPRequestHandler):
             raise APIError("API route not found.", 404)
         except APIError as exc:
             self.json(exc.status, {"error": str(exc)})
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
         except OSError:
             self.json(500, {"error": "Unable to prepare download. Check available disk space."})

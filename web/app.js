@@ -8,6 +8,21 @@ let selected = new Set();
 let busy = false;
 let downloading = false;
 let downloadController = null;
+function localHost(host) {
+  return host === 'localhost' || host.endsWith('.localhost') || host === '[::1]' || /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(host) || /\.(local|internal)$/.test(host) || /^\[f[cd][0-9a-f]{2}:/i.test(host);
+}
+function connectionMode() {
+  const mode = $('connection-mode').value;
+  const extension = mode === 'extension';
+  $('endpoint').readOnly = extension;
+  if (extension) $('endpoint').value = 'http://127.0.0.1:8765';
+  $('trust-server').disabled = extension;
+  $('extension-help').hidden = !extension;
+  $('server-help').textContent = extension ? 'The extension connects to the companion on your machine at this fixed address, without an extra window.' : mode === 'bridge' ? 'This optional method opens a local window. Keep it open while downloading. Use HTTP localhost.' : 'Use localhost, a private IP address, or your private HTTPS server. This method makes direct requests.';
+}
+$('connection-mode').value = localHost(window.location.hostname) || window.location.protocol !== 'https:' ? 'direct' : 'extension';
+connectionMode();
+$('connection-mode').addEventListener('change', () => { if (connection) disconnect(); connectionMode(); });
 
 function status(message, type = '') {
   $('status-text').textContent = message;
@@ -37,9 +52,11 @@ async function request(path, options = {}, authenticated = true) {
   if (options.body) headers.set('Content-Type', 'application/json');
   let response;
   try {
-    response = connection.bridge ? await connection.bridge.request(path, options, authenticated ? connection.token : undefined) : await fetch(connection.endpoint + path, { ...options, headers, cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer' });
+    const adapter = connection.extension || connection.bridge;
+    response = adapter ? await adapter.request(path, options, authenticated ? connection.token : undefined) : await fetch(connection.endpoint + path, { ...options, headers, cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer' });
   } catch (error) {
     if (error.name === 'AbortError') throw error;
+    if (connection?.extension || connection?.bridge) throw error;
     throw new Error('Cannot reach the private server. Check its address, that it is running, and that this page’s origin is allowed by its CORS configuration. A browser may also require local network permission or HTTPS for a remote private server.');
   }
   if (!response.ok) {
@@ -69,6 +86,7 @@ function stop(reset = false) {
 function disconnect() {
   stop(true);
   connection?.bridge?.close();
+  connection?.extension?.close();
   connection = null;
   $('token').value = '';
   $('media-url').disabled = true;
@@ -93,20 +111,25 @@ $('connection-form').addEventListener('submit', async event => {
     const token = $('token').value.trim();
     if (!token) throw new Error('Paste the access token from your server terminal.');
     connection?.bridge?.close();
+    connection?.extension?.close();
     connection = { endpoint: address, token };
     const serverURL = new URL(address);
     const loopback = serverURL.hostname === 'localhost' || serverURL.hostname.endsWith('.localhost') || serverURL.hostname === '[::1]' || /^127\./.test(serverURL.hostname);
-    if (window.location.protocol === 'https:' && serverURL.protocol === 'http:' && loopback) {
+    if ($('connection-mode').value === 'extension') {
+      if (address !== 'http://127.0.0.1:8765') throw new Error('The Chrome extension uses http://127.0.0.1:8765. Choose Direct connection for your private server.');
+      connection.extension = window.createLocalMediaExtension(message => { disconnect(); status(message, 'error'); });
+    } else if ($('connection-mode').value === 'bridge') {
+      if (serverURL.protocol !== 'http:' || !loopback) throw new Error('The optional bridge needs an HTTP localhost companion address. Choose Direct connection for a private HTTPS server.');
       connection.bridge = window.createLocalMediaBridge(address, message => { disconnect(); status(message, 'error'); });
     }
     controller = new AbortController();
     const checkController = controller;
     checkTimeout = setTimeout(() => { timedOut = true; checkController.abort(); }, 15000);
-    status(connection.bridge ? 'Opening your local bridge. Keep its window open while this page checks the server…' : 'Checking your private server…');
+    status(connection.extension ? 'Connecting through the Chrome extension in the background…' : connection.bridge ? 'Opening your local bridge. Keep its window open while this page checks the server…' : 'Checking your private server…');
     const health = await (await request('/api/health', { signal: controller.signal }, false)).json();
     if (attempt !== generation) return;
     if (health.status !== 'ok') throw new Error('The server did not report a healthy connection.');
-    $('connection-badge').textContent = health.demo ? 'Demo · sample files' : connection.bridge ? 'Local bridge connected' : 'Server connected';
+    $('connection-badge').textContent = health.demo ? 'Demo · sample files' : connection.extension ? 'Background extension connected' : connection.bridge ? 'Local bridge connected' : 'Server connected';
     $('connection-badge').className = `badge ${health.demo ? 'demo' : 'connected'}`;
     const missing = [];
     if (!health.yt_dlp) missing.push('yt-dlp (video extraction)');
@@ -115,6 +138,7 @@ $('connection-form').addEventListener('submit', async event => {
     if (health.js_runtime === false || health.js_runtime === null) missing.push('a supported JavaScript runtime such as Deno (YouTube extraction)');
     if (health.yt_dlp_ejs === null || health.yt_dlp_ejs === false) missing.push('yt-dlp-ejs (YouTube JavaScript challenge support)');
     const notices = [];
+    if (connection.extension) notices.push('Background extension connected to your local companion. You can keep using this tab; no bridge window is needed.');
     if (connection.bridge) notices.push('Local bridge connected. Keep its window open while extracting and downloading. Links and credentials pass only to your local companion.');
     if (health.demo) notices.push('Demo mode: extraction returns local sample files. It does not download the supplied link.');
     if (missing.length && !health.demo) notices.push(`Install missing server dependencies: ${missing.join(', ')}. Restart the server after installation.`);
@@ -268,4 +292,4 @@ $('download-selected').addEventListener('click', () => {
   if (!currentJob || !selected.size) return;
   download(`/api/jobs/${encodeURIComponent(currentJob.id)}/download`, 'local-media.zip', { method: 'POST', body: JSON.stringify({ item_ids: [...selected] }) });
 });
-window.addEventListener('pagehide', () => { controller?.abort(); downloadController?.abort(); connection?.bridge?.close(); connection = null; $('token').value = ''; });
+window.addEventListener('pagehide', () => { controller?.abort(); downloadController?.abort(); connection?.bridge?.close(); connection?.extension?.close(); connection = null; $('token').value = ''; });

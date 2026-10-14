@@ -4,6 +4,19 @@ A standalone single-link downloader for YouTube, X/Twitter, Instagram, and Reddi
 
 Hosted interface: **https://namanguptaaaa.github.io/media-downloader/**. Source: **https://github.com/namanguptaaaa/media-downloader**. The website is public; extraction runs on your own computer/private server and requires the companion below.
 
+## Chrome background connection (no bridge window)
+
+The hosted website defaults to the Manifest V3 extension. Install it once in **Google Chrome**:
+
+1. Download [the extension ZIP](https://namanguptaaaa.github.io/media-downloader/extension.zip) and unzip it into a permanent folder. In this workspace, the ready-to-load folder is `extension/`.
+2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the folder containing `manifest.json`.
+3. Start the companion with `./start-local.ps1 -ChromeExtension` and keep that terminal running. Alternatively use `python -m server.app --allow-origin chrome-extension://ifalbjaplddiebbnbecaalonfpojnamk`.
+4. Open the hosted website in that same Chrome profile, reload it after installation, keep **Chrome extension · in the background** selected, paste the printed companion token, and connect.
+
+No bridge window, extension popup, or extra tab needs to stay open. The local server still performs extraction; the extension makes requests to it in a background service worker. Close the downloader page or disconnect to end its active extension connection. It has no storage/tabs/analytics permissions, requests only `http://127.0.0.1:8765/*`, and injects its relay only into this hosted downloader project. Credentials remain in memory. The manifest includes a public key to preserve its extension ID; it is not a secret or a platform API key.
+
+This is an unpacked extension, not a Chrome Web Store installation. When updating its files, click **Reload** on its Chrome extensions card and reload the website. The Codex in-app browser does not load this Chrome extension; use your installed Google Chrome. The extension connection uses port 8765; private HTTPS deployments use the website's **Direct connection** mode.
+
 ## Run locally
 
 Install Python 3.10+ and a supported JavaScript runtime: Node.js 20+ (auto-detected) or Deno. Install dependencies once:
@@ -75,7 +88,7 @@ python -m server.app --allow-origin https://YOUR-USER.github.io
 
 The prepared Windows launcher supports the same configuration: `./start-local.ps1 -AllowOrigin https://namanguptaaaa.github.io`. Keep that terminal running while using the hosted interface.
 
-For the hosted HTTPS interface connected to HTTP localhost, **Connect to server** opens a small local bridge window. Keep it open. The bridge uses only the companion's same-origin API and communicates with its opener using exact-origin, nonce-scoped browser messages. It accepts only the configured trusted page origins and supported downloader API routes; it is not an arbitrary proxy. Tokens and media stay in browser/server memory rather than URL parameters or GitHub storage. Allow this site's popup if your browser blocks it. HTTPS private-server endpoints and the directly served local UI use normal requests.
+The bridge is an optional legacy connection mode and never opens automatically. If you deliberately select **Optional local bridge window**, its window must stay open while connected. The extension is the default for the hosted website and needs no bridge. Both restrict API paths and keep credentials in memory rather than URL parameters or GitHub storage. HTTPS private-server endpoints and the directly served local UI use **Direct connection**.
 
 An origin has no path: a Pages URL `https://YOUR-USER.github.io/repository/` uses `https://YOUR-USER.github.io`. Keep the server field set to your companion, not a public downloader. Browser local-network protections may block direct remote-page-to-local-server requests; the explicitly opened local bridge avoids making those cross-network fetches. If a browser does not support that bridge, use the locally served website or a private HTTPS deployment. No security settings or certificate warnings need to be bypassed.
 
@@ -105,6 +118,7 @@ Tokens are generated at startup and kept only in page memory. An optional `MEDIA
 python -m unittest discover -s tests -v
 python -m unittest server.test_app -v
 node --test tests/test_bridge.cjs
+node --test tests/test_extension.cjs
 node --check web/app.js
 ```
 

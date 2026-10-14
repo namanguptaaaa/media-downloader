@@ -5,8 +5,15 @@ import zipfile
 root = Path(__file__).resolve().parent.parent
 dist = root / "dist"
 dist.mkdir(exist_ok=True)
+extension_files = sorted((root / "extension").glob("*"))
+with zipfile.ZipFile(root / "web" / "extension.zip", "w", zipfile.ZIP_DEFLATED) as archive:
+    for path in extension_files:
+        if path.is_file():
+            archive.write(path, path.name)
+shutil_copy = (root / "web" / "extension.zip").read_bytes()
+(dist / "local-media-extension.zip").write_bytes(shutil_copy)
 files = [root / name for name in ("README.md", "LICENSE", "requirements.txt", "start-local.ps1", ".gitignore")]
-for directory in ("web", "server", "tests", "docs", "scripts", ".github"):
+for directory in ("web", "server", "tests", "docs", "scripts", "extension", ".github"):
     files += [p for p in (root / directory).rglob("*") if p.is_file() and "__pycache__" not in p.parts]
 with zipfile.ZipFile(dist / "local-media-source.zip", "w", zipfile.ZIP_DEFLATED) as archive:
     for path in sorted(files):
