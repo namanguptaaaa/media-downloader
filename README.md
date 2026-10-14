@@ -2,6 +2,8 @@
 
 A standalone single-link downloader for YouTube, X/Twitter, Instagram, and Reddit. The lightweight website talks to a companion running on your machine or private server. No AI service, public downloader API, analytics, account keys, or build service is used.
 
+Hosted interface: **https://namanguptaaaa.github.io/media-downloader/**. Source: **https://github.com/namanguptaaaa/media-downloader**. The website is public; extraction runs on your own computer/private server and requires the companion below.
+
 ## Run locally
 
 Install Python 3.10+ and a supported JavaScript runtime: Node.js 20+ (auto-detected) or Deno. Install dependencies once:
@@ -73,7 +75,9 @@ python -m server.app --allow-origin https://YOUR-USER.github.io
 
 The prepared Windows launcher supports the same configuration: `./start-local.ps1 -AllowOrigin https://namanguptaaaa.github.io`. Keep that terminal running while using the hosted interface.
 
-An origin has no path: a Pages URL `https://YOUR-USER.github.io/repository/` uses `https://YOUR-USER.github.io`. Keep the server field set to your companion, not a public downloader. Browser local-network protections may request permission or block remote-page-to-local-server access. In that case use the locally served website, or a private HTTPS deployment. No security-interstitial bypass is needed or advised.
+For the hosted HTTPS interface connected to HTTP localhost, **Connect to server** opens a small local bridge window. Keep it open. The bridge uses only the companion's same-origin API and communicates with its opener using exact-origin, nonce-scoped browser messages. It accepts only the configured trusted page origins and supported downloader API routes; it is not an arbitrary proxy. Tokens and media stay in browser/server memory rather than URL parameters or GitHub storage. Allow this site's popup if your browser blocks it. HTTPS private-server endpoints and the directly served local UI use normal requests.
+
+An origin has no path: a Pages URL `https://YOUR-USER.github.io/repository/` uses `https://YOUR-USER.github.io`. Keep the server field set to your companion, not a public downloader. Browser local-network protections may block direct remote-page-to-local-server requests; the explicitly opened local bridge avoids making those cross-network fetches. If a browser does not support that bridge, use the locally served website or a private HTTPS deployment. No security settings or certificate warnings need to be bypassed.
 
 ## Private server
 

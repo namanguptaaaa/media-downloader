@@ -347,7 +347,9 @@ class Handler(BaseHTTPRequestHandler):
             path = urlsplit(self.path).path
             self.guard(auth=path.startswith("/api/") and path != "/api/health")
             if path == "/api/health":
-                return self.json(200, dict(status="ok", version=VERSION, ffmpeg=bool(self.server.store.ffmpeg), yt_dlp=dependency_version("yt-dlp"), gallery_dl=dependency_version("gallery-dl"), js_runtime=bool(self.server.store.js_runtime or shutil.which("deno")), yt_dlp_ejs=dependency_version("yt-dlp-ejs"), demo=self.server.store.demo))
+                # Public configuration only; the token and user jobs stay private.
+                # The same-origin popup bridge needs this exact trust allowlist.
+                return self.json(200, dict(status="ok", version=VERSION, ffmpeg=bool(self.server.store.ffmpeg), yt_dlp=dependency_version("yt-dlp"), gallery_dl=dependency_version("gallery-dl"), js_runtime=bool(self.server.store.js_runtime or shutil.which("deno")), yt_dlp_ejs=dependency_version("yt-dlp-ejs"), demo=self.server.store.demo, allowed_origins=sorted(self.server.origins)))
             match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})(?:/files/([0-9]+))?", path)
             if match:
                 key, item_id = match.groups()

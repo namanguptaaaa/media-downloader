@@ -37,7 +37,7 @@ async function request(path, options = {}, authenticated = true) {
   if (options.body) headers.set('Content-Type', 'application/json');
   let response;
   try {
-    response = await fetch(connection.endpoint + path, { ...options, headers, cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer' });
+    response = connection.bridge ? await connection.bridge.request(path, options, authenticated ? connection.token : undefined) : await fetch(connection.endpoint + path, { ...options, headers, cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer' });
   } catch (error) {
     if (error.name === 'AbortError') throw error;
     throw new Error('Cannot reach the private server. Check its address, that it is running, and that this page’s origin is allowed by its CORS configuration. A browser may also require local network permission or HTTPS for a remote private server.');
@@ -68,6 +68,7 @@ function stop(reset = false) {
 
 function disconnect() {
   stop(true);
+  connection?.bridge?.close();
   connection = null;
   $('token').value = '';
   $('media-url').disabled = true;
@@ -91,15 +92,21 @@ $('connection-form').addEventListener('submit', async event => {
     const address = endpoint($('endpoint').value);
     const token = $('token').value.trim();
     if (!token) throw new Error('Paste the access token from your server terminal.');
+    connection?.bridge?.close();
     connection = { endpoint: address, token };
+    const serverURL = new URL(address);
+    const loopback = serverURL.hostname === 'localhost' || serverURL.hostname.endsWith('.localhost') || serverURL.hostname === '[::1]' || /^127\./.test(serverURL.hostname);
+    if (window.location.protocol === 'https:' && serverURL.protocol === 'http:' && loopback) {
+      connection.bridge = window.createLocalMediaBridge(address, message => { disconnect(); status(message, 'error'); });
+    }
     controller = new AbortController();
     const checkController = controller;
     checkTimeout = setTimeout(() => { timedOut = true; checkController.abort(); }, 15000);
-    status('Checking your private server…');
+    status(connection.bridge ? 'Opening your local bridge. Keep its window open while this page checks the server…' : 'Checking your private server…');
     const health = await (await request('/api/health', { signal: controller.signal }, false)).json();
     if (attempt !== generation) return;
     if (health.status !== 'ok') throw new Error('The server did not report a healthy connection.');
-    $('connection-badge').textContent = health.demo ? 'Demo · sample files' : 'Server connected';
+    $('connection-badge').textContent = health.demo ? 'Demo · sample files' : connection.bridge ? 'Local bridge connected' : 'Server connected';
     $('connection-badge').className = `badge ${health.demo ? 'demo' : 'connected'}`;
     const missing = [];
     if (!health.yt_dlp) missing.push('yt-dlp (video extraction)');
@@ -108,6 +115,7 @@ $('connection-form').addEventListener('submit', async event => {
     if (health.js_runtime === false || health.js_runtime === null) missing.push('a supported JavaScript runtime such as Deno (YouTube extraction)');
     if (health.yt_dlp_ejs === null || health.yt_dlp_ejs === false) missing.push('yt-dlp-ejs (YouTube JavaScript challenge support)');
     const notices = [];
+    if (connection.bridge) notices.push('Local bridge connected. Keep its window open while extracting and downloading. Links and credentials pass only to your local companion.');
     if (health.demo) notices.push('Demo mode: extraction returns local sample files. It does not download the supplied link.');
     if (missing.length && !health.demo) notices.push(`Install missing server dependencies: ${missing.join(', ')}. Restart the server after installation.`);
     $('dependency-notice').textContent = notices.join(' ');
@@ -260,4 +268,4 @@ $('download-selected').addEventListener('click', () => {
   if (!currentJob || !selected.size) return;
   download(`/api/jobs/${encodeURIComponent(currentJob.id)}/download`, 'local-media.zip', { method: 'POST', body: JSON.stringify({ item_ids: [...selected] }) });
 });
-window.addEventListener('pagehide', () => { controller?.abort(); downloadController?.abort(); connection = null; $('token').value = ''; });
+window.addEventListener('pagehide', () => { controller?.abort(); downloadController?.abort(); connection?.bridge?.close(); connection = null; $('token').value = ''; });
