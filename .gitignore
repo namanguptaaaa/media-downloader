@@ -1,0 +1,13 @@
+.venv/
+.runtime-venv/
+.deps/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+downloads/
+.env
+*.cookies.txt
+cookies.txt
+artifacts/
+dist/
+.agents/

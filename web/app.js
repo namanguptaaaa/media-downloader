@@ -1,0 +1,263 @@
+'use strict';
+const $ = id => document.getElementById(id);
+let connection = null;
+let generation = 0;
+let controller = null;
+let currentJob = null;
+let selected = new Set();
+let busy = false;
+let downloading = false;
+let downloadController = null;
+
+function status(message, type = '') {
+  $('status-text').textContent = message;
+  $('status').className = `status ${type}`;
+  $('status-icon').textContent = type === 'error' ? '!' : type === 'success' ? '✓' : '○';
+}
+
+function endpoint(value) {
+  const parsed = new URL(value.trim());
+  const host = parsed.hostname.toLowerCase();
+  const ipv4 = host.split('.').map(Number);
+  const isV4 = /^\d+\.\d+\.\d+\.\d+$/.test(host) && ipv4.every(n => n >= 0 && n <= 255);
+  const privateV4 = isV4 && (ipv4[0] === 127 || ipv4[0] === 10 || (ipv4[0] === 192 && ipv4[1] === 168) || (ipv4[0] === 172 && ipv4[1] >= 16 && ipv4[1] <= 31));
+  const privateV6 = host === '[::1]' || /^\[f[cd][0-9a-f]{2}:/i.test(host);
+  const privateName = host === 'localhost' || /\.(localhost|local|internal)$/.test(host);
+  const trustedHost = parsed.protocol === 'https:' && $('trust-server').checked;
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash || (parsed.pathname !== '/' && parsed.pathname !== '') || !(privateV4 || privateV6 || privateName || trustedHost)) {
+    throw new Error('Enter a local or private HTTP(S) server address, or acknowledge that you control a custom HTTPS server. Use no embedded credentials, path, or query.');
+  }
+  return parsed.origin;
+}
+
+async function request(path, options = {}, authenticated = true) {
+  if (!connection) throw new Error('Connect your private server first.');
+  const headers = new Headers(options.headers || {});
+  if (authenticated) headers.set('Authorization', `Bearer ${connection.token}`);
+  if (options.body) headers.set('Content-Type', 'application/json');
+  let response;
+  try {
+    response = await fetch(connection.endpoint + path, { ...options, headers, cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer' });
+  } catch (error) {
+    if (error.name === 'AbortError') throw error;
+    throw new Error('Cannot reach the private server. Check its address, that it is running, and that this page’s origin is allowed by its CORS configuration. A browser may also require local network permission or HTTPS for a remote private server.');
+  }
+  if (!response.ok) {
+    let detail;
+    try { const data = await response.json(); detail = typeof data.detail === 'string' ? data.detail : typeof data.error === 'string' ? data.error : null; } catch { /* Fall back to status. */ }
+    throw new Error(response.status === 401 || response.status === 403 ? 'Access denied. Check the server token and allowed page origin, then reconnect.' : detail || `Server request failed (${response.status}).`);
+  }
+  return response;
+}
+
+function stop(reset = false) {
+  generation += 1;
+  controller?.abort();
+  downloadController?.abort();
+  controller = null;
+  busy = false;
+  $('progress-area').hidden = true;
+  $('extract').disabled = !connection;
+  if (reset) {
+    currentJob = null;
+    selected.clear();
+    $('results').hidden = true;
+    $('media-list').replaceChildren();
+  }
+}
+
+function disconnect() {
+  stop(true);
+  connection = null;
+  $('token').value = '';
+  $('media-url').disabled = true;
+  $('extract').disabled = true;
+  $('disconnect').hidden = true;
+  $('connection-badge').textContent = 'Disconnected';
+  $('connection-badge').className = 'badge';
+  $('dependency-notice').hidden = true;
+  $('connection-panel').open = true;
+  status('Disconnected. Connect your private server to continue.');
+}
+
+$('connection-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  stop(true);
+  const attempt = generation;
+  let checkTimeout;
+  let timedOut = false;
+  $('connect').disabled = true;
+  try {
+    const address = endpoint($('endpoint').value);
+    const token = $('token').value.trim();
+    if (!token) throw new Error('Paste the access token from your server terminal.');
+    connection = { endpoint: address, token };
+    controller = new AbortController();
+    const checkController = controller;
+    checkTimeout = setTimeout(() => { timedOut = true; checkController.abort(); }, 15000);
+    status('Checking your private server…');
+    const health = await (await request('/api/health', { signal: controller.signal }, false)).json();
+    if (attempt !== generation) return;
+    if (health.status !== 'ok') throw new Error('The server did not report a healthy connection.');
+    $('connection-badge').textContent = health.demo ? 'Demo · sample files' : 'Server connected';
+    $('connection-badge').className = `badge ${health.demo ? 'demo' : 'connected'}`;
+    const missing = [];
+    if (!health.yt_dlp) missing.push('yt-dlp (video extraction)');
+    if (!health.gallery_dl) missing.push('gallery-dl (image extraction)');
+    if (!health.ffmpeg) missing.push('FFmpeg (merging highest-quality video and audio)');
+    if (health.js_runtime === false || health.js_runtime === null) missing.push('a supported JavaScript runtime such as Deno (YouTube extraction)');
+    if (health.yt_dlp_ejs === null || health.yt_dlp_ejs === false) missing.push('yt-dlp-ejs (YouTube JavaScript challenge support)');
+    const notices = [];
+    if (health.demo) notices.push('Demo mode: extraction returns local sample files. It does not download the supplied link.');
+    if (missing.length && !health.demo) notices.push(`Install missing server dependencies: ${missing.join(', ')}. Restart the server after installation.`);
+    $('dependency-notice').textContent = notices.join(' ');
+    $('dependency-notice').hidden = !notices.length;
+    $('disconnect').hidden = false;
+    $('media-url').disabled = false;
+    $('extract').disabled = false;
+    $('connection-panel').open = false;
+    $('token').value = '';
+    status('Server available. Paste a link to extract media. The token will be checked when extraction starts.', 'success');
+    $('media-url').focus();
+  } catch (error) {
+    if (attempt !== generation || (error.name === 'AbortError' && !timedOut)) return;
+    disconnect();
+    status(timedOut ? 'The server did not respond within 15 seconds. Check its address and try again.' : error.message, 'error');
+  } finally { clearTimeout(checkTimeout); $('connect').disabled = false; }
+});
+$('disconnect').addEventListener('click', disconnect);
+
+function mediaURL(value) {
+  const parsed = new URL(value.trim());
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) throw new Error('Use an HTTPS media link without embedded credentials.');
+  const host = parsed.hostname.toLowerCase();
+  const domains = ['youtube.com', 'youtu.be', 'twitter.com', 'x.com', 'instagram.com', 'reddit.com', 'redd.it'];
+  if (!domains.some(domain => host === domain || host.endsWith('.' + domain))) throw new Error('Use a YouTube, X / Twitter, Instagram, or Reddit link.');
+  return parsed.href;
+}
+
+const delay = (ms, signal) => new Promise((resolve, reject) => {
+  const abort = () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')); };
+  const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(); }, ms);
+  signal.addEventListener('abort', abort, { once: true });
+  if (signal.aborted) abort();
+});
+
+$('extract-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (busy || !connection) return;
+  stop(true);
+  const attempt = generation;
+  controller = new AbortController();
+  const signal = controller.signal;
+  try {
+    const url = mediaURL($('media-url').value);
+    busy = true;
+    $('extract').disabled = true;
+    $('progress-area').hidden = false;
+    $('progress').removeAttribute('value');
+    status('Starting extraction on your private server…');
+    const initial = await (await request('/api/extract', { method: 'POST', body: JSON.stringify({ url }), signal })).json();
+    if (!initial.id) throw new Error('The server did not return a job ID.');
+    while (attempt === generation) {
+      const job = await (await request(`/api/jobs/${encodeURIComponent(initial.id)}`, { signal })).json();
+      if (attempt !== generation) return;
+      if (job.state === 'error') throw new Error(typeof job.error === 'string' ? job.error : 'Extraction failed. Check server dependencies and authentication cookies.');
+      if (job.state === 'ready') {
+        currentJob = job;
+        renderResults(job);
+        const partial = Array.isArray(job.warnings) && job.warnings.length;
+        status(job.items?.length ? (partial ? 'Some media is ready. Review extraction warnings below before downloading.' : 'Your media is ready. Select files to download.') : 'Extraction completed without downloadable media.', job.items?.length && !partial ? 'success' : '');
+        $('results-title').focus();
+        break;
+      }
+      if (!['queued', 'running'].includes(job.state)) throw new Error('The server returned an unknown extraction state.');
+      status(job.phase || (job.state === 'queued' ? 'Queued on your server…' : 'Extracting media…'));
+      if (Number.isFinite(job.progress)) $('progress').value = Math.max(0, Math.min(100, job.progress));
+      else $('progress').removeAttribute('value');
+      await delay(1000, signal);
+    }
+  } catch (error) {
+    if (attempt === generation && error.name !== 'AbortError') status(error.message, 'error');
+  } finally {
+    if (attempt === generation) { busy = false; $('extract').disabled = !connection; $('progress-area').hidden = true; }
+  }
+});
+$('stop-waiting').addEventListener('click', () => { stop(); status('Stopped waiting. The server may still be processing this job. Paste a link to start another extraction.'); });
+
+function bytes(value) {
+  if (!Number.isFinite(value) || value < 0) return 'Size unavailable';
+  if (value < 1024) return `${value} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let index = -1;
+  do { value /= 1024; index += 1; } while (value >= 1024 && index < units.length - 1);
+  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[index]}`;
+}
+
+function updateSelection() {
+  const count = currentJob?.items?.length || 0;
+  $('select-all').checked = count > 0 && selected.size === count;
+  $('select-all').indeterminate = selected.size > 0 && selected.size < count;
+  $('download-selected').disabled = !selected.size || downloading;
+  $('download-selected').textContent = downloading ? 'Preparing download…' : `Download selected ZIP (${selected.size})`;
+}
+
+function renderResults(job) {
+  const items = Array.isArray(job.items) ? job.items : [];
+  selected = new Set(items.map(item => item.id));
+  $('results-title').textContent = job.title || 'Your media';
+  $('results-title').tabIndex = -1;
+  $('result-platform').textContent = job.platform || 'MEDIA';
+  $('result-count').textContent = `${items.length} ${items.length === 1 ? 'file' : 'files'}`;
+  const warnings = Array.isArray(job.warnings) ? job.warnings.filter(value => typeof value === 'string') : [];
+  $('result-warnings').textContent = warnings.length ? `Extraction warnings: ${warnings.join(' ')}` : '';
+  $('result-warnings').hidden = !warnings.length;
+  $('media-list').replaceChildren();
+  for (const item of items) {
+    const row = document.createElement('li'); row.className = 'media-item';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = true; checkbox.dataset.itemId = item.id; checkbox.setAttribute('aria-label', `Select ${item.filename}`);
+    checkbox.addEventListener('change', () => { checkbox.checked ? selected.add(item.id) : selected.delete(item.id); updateSelection(); });
+    const symbol = document.createElement('span'); symbol.className = 'media-symbol'; symbol.textContent = item.kind === 'image' ? '▧' : '▷'; symbol.setAttribute('aria-hidden', 'true');
+    const info = document.createElement('div'); info.className = 'media-info';
+    const name = document.createElement('p'); name.className = 'media-name'; name.textContent = item.filename;
+    const meta = document.createElement('p'); meta.className = 'media-meta'; meta.textContent = `${item.kind === 'image' ? 'IMAGE' : 'VIDEO'} · ${bytes(item.size)}`;
+    info.append(name, meta);
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'button secondary'; button.textContent = 'Download ↓'; button.setAttribute('aria-label', `Download ${item.filename}`);
+    button.addEventListener('click', () => download(`/api/jobs/${encodeURIComponent(job.id)}/files/${encodeURIComponent(item.id)}`, item.filename, {}, button));
+    row.append(checkbox, symbol, info, button); $('media-list').append(row);
+  }
+  $('results').hidden = false;
+  updateSelection();
+}
+$('select-all').addEventListener('change', () => {
+  const checked = $('select-all').checked;
+  selected = new Set(checked ? currentJob.items.map(item => item.id) : []);
+  for (const checkbox of $('media-list').querySelectorAll('input[type=checkbox]')) checkbox.checked = checked;
+  updateSelection();
+});
+
+async function download(path, filename, options = {}, button = null) {
+  if (downloading || !connection) return;
+  const attempt = generation;
+  downloading = true;
+  downloadController = new AbortController();
+  if (button) button.disabled = true;
+  updateSelection();
+  try {
+    status('Transferring files from your private server…');
+    const response = await request(path, { ...options, signal: downloadController.signal });
+    const blob = await response.blob();
+    if (attempt !== generation) return;
+    const blobURL = URL.createObjectURL(blob);
+    const anchor = document.createElement('a'); anchor.href = blobURL; anchor.download = filename; anchor.hidden = true;
+    document.body.append(anchor); anchor.click(); anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(blobURL), 60000);
+    status('Download handed to your browser. Check your downloads folder.', 'success');
+  } catch (error) { if (attempt === generation && error.name !== 'AbortError') status(error.message, 'error'); }
+  finally { downloading = false; if (button) button.disabled = false; updateSelection(); }
+}
+$('download-selected').addEventListener('click', () => {
+  if (!currentJob || !selected.size) return;
+  download(`/api/jobs/${encodeURIComponent(currentJob.id)}/download`, 'local-media.zip', { method: 'POST', body: JSON.stringify({ item_ids: [...selected] }) });
+});
+window.addEventListener('pagehide', () => { controller?.abort(); downloadController?.abort(); connection = null; $('token').value = ''; });

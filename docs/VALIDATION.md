@@ -1,0 +1,32 @@
+# Validation evidence
+
+Validated 2026-10-14 using Python 3.12.14, yt-dlp 2026.8.19, gallery-dl 1.32.16, yt-dlp-ejs 0.8.0, Node on PATH, and imageio-ffmpeg 0.6.0 (FFmpeg 7.1). Source versions are recorded rather than promising future platform behavior.
+
+## Application acceptance
+
+- Eight independent HTTP/security tests and ten backend tests passed. These cover token/Host/Origin/CORS boundaries, input normalization, invalid input, static path traversal, missing jobs, attachment files/ZIPs, extractor configuration isolation, job expiry, image-only posts without FFmpeg, rejected failed video fragments, and visible partial-result warnings.
+- JavaScript syntax check passed. Frontend agent additionally checked 24 endpoint/platform/size assertions.
+- Real browser interaction at the local website: token entry, Connect click, URL entry, Enter submission, result rendering, ZIP button click, and browser download completed in demo mode. The saved ZIP contained a 68-byte PNG and a 14,898-byte video. `zipfile.testzip()` returned no corruption.
+- Live browser interaction: Connect, paste URL, Extract click, and individual video Download click completed for YouTube `jNQXAC9IVRw`. Results included a 474,592-byte MKV and an approximately 22 KB thumbnail. FFmpeg decoded the saved MKV successfully: 320×240 AV1 video and stereo Opus audio, approximately 19 seconds. The selector requested best available streams; this old source itself has a low resolution.
+- [Saved live browser screenshot](screenshots/live-download.png) shows the completed result/download interface.
+- Browser unsupported-domain rejection passed, and the final frontend reconnect passed after adding a bounded connection timeout. Trailing-slash Shorts and X photo/video permalink normalization are covered by the backend URL checks.
+- `start-local.ps1 -Demo -Port 8767` started successfully, with all dependency health fields available. Source/static ZIPs were generated and passed archive integrity checks; source bundles exclude installed binaries, cookie files and environments.
+
+The execution sandbox blocks local socket access and external DNS; approved escalation allowed dependency installation, loopback tests and public-platform probes. This is an agent execution limitation, not a runtime dependency of the delivered application.
+
+## Live platform probes
+
+All probes used public upstream extractor test posts with no credentials, through the actual local companion HTTP API. They are samples, not a guarantee for all posts.
+
+| Platform | Observed result |
+| --- | --- |
+| YouTube | Browser extraction and download passed. Video/audio decode passed, thumbnail returned. An older deleted test video was unavailable; replaced with the accessible sample above. |
+| X/Twitter | Newer upstream sample `1790637656616943991` returned a 1,397,317-byte video without warnings. An old Star Wars sample failed due to an unavailable amplify/CDN domain (upstream HTTP 500). |
+| Instagram | Carousel `BQ0eAlwhDrw` returned three complete videos (39,753, 960,393 and 2,524,830 bytes). Images returned a partial-result warning; direct gallery-dl diagnosis reported redirect to login. Authenticated original-image extraction was not tested because no cookie file was supplied. |
+| Reddit | Public sample returned no media. Direct upstream diagnosis reported "You've been blocked by network security." Live successful Reddit downloading remains unverified on this network; no account credentials or bypass was attempted. |
+
+The UI clearly reports extraction failures/partial output. Platform login and network restrictions are disclosed instead of represented as successful support. Original-image selection delegates to gallery-dl's upstream extractors; live authenticated image extraction remains unverified here. No URL logs/history are created by the application or probe script; this document deliberately records public fixture identifiers for auditable acceptance evidence.
+
+## Delivery boundaries
+
+The static website and companion are delivered; a Chrome extension is not included. No GitHub remote was configured, so no account publication or push occurred. The optional Pages workflow is manual. Private proxy/VPN deployment, GitHub Pages local-network permission behavior, DRM/account-restricted media, and credentials were not tested. See README for these constraints and setup.

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src http: https:; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Local Media — Private media downloader</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar"><a class="brand" href="./"><span class="brand-mark" aria-hidden="true">↓</span> LOCAL MEDIA</a><span class="privacy"><span aria-hidden="true">●</span> YOUR SERVER. YOUR FILES.</span></header>
+    <main>
+      <section class="intro" aria-labelledby="page-title"><p class="eyebrow">THE WEB, SAVED LOCALLY</p><h1 id="page-title">One link.<br>All the media.</h1><p class="lede">Save images and videos at the best available quality.<br>Extraction runs on your machine or private server.</p><div class="platforms" aria-label="Supported platforms"><span>YouTube</span><span>X / Twitter</span><span>Instagram</span><span>Reddit</span></div></section>
+      <section class="workspace" aria-label="Media downloader">
+        <div class="workspace-head"><h2>Download workspace</h2><span id="connection-badge" class="badge">Disconnected</span></div>
+        <details id="connection-panel" open><summary>Private server connection <span aria-hidden="true">↗</span></summary>
+          <form id="connection-form" class="connection-form">
+            <label for="endpoint">Server address</label><input id="endpoint" type="url" value="http://127.0.0.1:8765" spellcheck="false" autocomplete="off" required aria-describedby="server-help">
+            <p id="server-help" class="hint">Use localhost, a private IP address, or a .local / .internal hostname.</p>
+            <label class="check-label trust-label"><input id="trust-server" type="checkbox"> I control and trust this server (required for custom HTTPS hosts).</label>
+            <label for="token">Access token</label><input id="token" type="password" placeholder="Paste the token from your server terminal" autocomplete="off" required aria-describedby="token-help"><p id="token-help" class="hint">Kept only in this page’s memory. Never saved to browser storage.</p>
+            <div class="connection-actions"><button id="connect" type="submit" class="button secondary">Connect to server</button><button id="disconnect" type="button" class="text-button" hidden>Disconnect</button></div>
+          </form>
+        </details>
+        <div id="dependency-notice" class="notice" hidden></div>
+        <form id="extract-form" class="extract-form"><label for="media-url">Paste a media link</label><div class="url-row"><input id="media-url" type="url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false" required disabled><button id="extract" class="button primary" type="submit" disabled>Extract media <span aria-hidden="true">→</span></button></div><p class="hint">YouTube · X / Twitter · Instagram · Reddit. Some posts require cookies configured on your server.</p></form>
+        <div id="status" class="status" role="status" aria-live="polite"><span id="status-icon" aria-hidden="true">○</span><p id="status-text">Connect your private server to get started.</p></div>
+        <div id="progress-area" hidden><progress id="progress" max="100" aria-label="Extraction progress"></progress><button id="stop-waiting" type="button" class="text-button">Stop waiting</button><p class="hint">Stopping this page’s wait does not cancel work on the server.</p></div>
+        <section id="results" hidden aria-labelledby="results-title"><div class="results-heading"><div><p id="result-platform" class="eyebrow"></p><h3 id="results-title">Your media</h3></div><span id="result-count" class="badge"></span></div><div id="result-warnings" class="notice" role="status" hidden></div><div class="selection-bar"><label class="check-label"><input id="select-all" type="checkbox"> Select all</label><button id="download-selected" type="button" class="button primary">Download selected ZIP</button></div><ul id="media-list" class="media-list"></ul></section>
+      </section>
+      <section class="principles" aria-label="Privacy and quality"><div><span class="principle-number">01</span><h2>Private by design</h2><p>No public extraction service. No analytics. Your link goes only to your configured server.</p></div><div><span class="principle-number">02</span><h2>Original quality</h2><p>Best available video and original images. FFmpeg combines video and audio when needed.</p></div><div><span class="principle-number">03</span><h2>Independent tools</h2><p>Powered by local extraction tools. No AI subscriptions, API keys, or remote AI services.</p></div></section>
+    </main>
+    <footer><span>LOCAL MEDIA / PRIVATE MEDIA TOOLKIT</span><span>Download only media you have permission to save.</span></footer>
+  </div>
+</body>
+</html>
