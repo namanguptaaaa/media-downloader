@@ -29,7 +29,7 @@ The UI clearly reports extraction failures/partial output. Platform login and ne
 
 ## Delivery boundaries
 
-The static website and companion are delivered; a Chrome extension is not included. The initial delivery was local-only. On the user's follow-up, the public repository `namanguptaaaa/media-downloader` was created, source uploaded, and GitHub Pages enabled with successful Actions deployment. Private proxy/VPN deployment, DRM/account-restricted media and cookies remain untested. See README for these constraints and setup.
+The static website, companion and Chrome Manifest V3 background extension are delivered. The initial delivery was local-only. On the user's follow-up, the public repository `namanguptaaaa/media-downloader` was created, source uploaded, and GitHub Pages enabled with successful Actions deployment. Private proxy/VPN deployment, DRM/account-restricted media and cookies remain untested. See README for these constraints and setup.
 
 ## Hosted acceptance after follow-up
 
@@ -47,4 +47,4 @@ The user rejected a persistent bridge window and chose the Chrome extension. Hos
 
 Seven new independent Node tests pass, including Chrome-style JSON-cloned messages, a complete page/content/worker binary pipeline, ACK backpressure and byte-exact120KB transport, identity/frame/page/path/token bounds, nonce and concurrency limits, cancellation, and absence of popup fallback when the extension is missing. Combined relay suite:12 passing tests. This verifies implementation/protocol behavior, not actual installed Chrome permissions or worker lifecycle.
 
-Desktop automation stopped because it could not reliably determine Chrome's current URL. No Chrome installation/settings changes were automated. The extension must be loaded once by the user with Chrome's Load unpacked control. Actual installed Chrome extraction/download acceptance remains pending that manual step. The companion is configured for the exact extension origin; start it later with `./start-local.ps1 -ChromeExtension`.
+Desktop automation stopped because it could not reliably determine Chrome's current URL and was subsequently stopped with Escape. No Chrome installation/settings changes were automated. The user manually loaded the extension, pasted the token and connected. In response to the explicit Chrome acceptance check, the user confirmed: "Connected and ZIP downloaded; no bridge opened." This is user-observed installed Chrome acceptance, distinct from the automated VM protocol tests. The running companion and published version1.2.0 interface were independently checked over HTTP, including the exact extension origin. The companion is configured for that origin; start it later with `./start-local.ps1 -ChromeExtension`.
