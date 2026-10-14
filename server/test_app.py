@@ -71,6 +71,9 @@ class HTTPTests(unittest.TestCase):
         status, _, body = self.request("GET", "/api/health", token=False)
         self.assertEqual(status, 200)
         self.assertTrue(json.loads(body)["demo"])
+        self.assertIn("https://example.github.io", json.loads(body)["allowed_origins"])
+        self.assertNotIn("*", json.loads(body)["allowed_origins"])
+        self.assertNotIn("test-token-only", body.decode())
         for path in ["/api/extract", "/api/jobs/" + "a" * 32]:
             method = "POST" if path.endswith("extract") else "GET"
             self.assertEqual(self.request(method, path, {"url": "https://youtu.be/jNQXAC9IVRw"} if method == "POST" else None, token=False)[0], 401)
@@ -78,6 +81,8 @@ class HTTPTests(unittest.TestCase):
     def test_host_and_origin_guards(self):
         self.assertEqual(self.request("GET", "/api/health", headers={"Host": "evil.test"})[0], 403)
         self.assertEqual(self.request("GET", "/api/health", headers={"Origin": "https://evil.test"})[0], 403)
+        self.assertEqual(self.request("GET", "/api/health", headers={"Origin": "https://example.github.io.evil.test"})[0], 403)
+        self.assertEqual(self.request("GET", "/api/health", headers={"Origin": "null"})[0], 403)
         status, headers, _ = self.request("OPTIONS", "/api/extract", token=False, headers={"Origin": "https://example.github.io"})
         self.assertEqual(status, 204)
         self.assertEqual(headers["Access-Control-Allow-Origin"], "https://example.github.io")

@@ -29,4 +29,14 @@ The UI clearly reports extraction failures/partial output. Platform login and ne
 
 ## Delivery boundaries
 
-The static website and companion are delivered; a Chrome extension is not included. No GitHub remote was configured, so no account publication or push occurred. The optional Pages workflow is manual. Private proxy/VPN deployment, GitHub Pages local-network permission behavior, DRM/account-restricted media, and credentials were not tested. See README for these constraints and setup.
+The static website and companion are delivered; a Chrome extension is not included. The initial delivery was local-only. On the user's follow-up, the public repository `namanguptaaaa/media-downloader` was created, source uploaded, and GitHub Pages enabled with successful Actions deployment. Private proxy/VPN deployment, DRM/account-restricted media and cookies remain untested. See README for these constraints and setup.
+
+## Hosted acceptance after follow-up
+
+Website: **https://namanguptaaaa.github.io/media-downloader/**. Source: **https://github.com/namanguptaaaa/media-downloader**.
+
+Direct HTTPS-page-to-HTTP-localhost requests timed out in the in-app browser, while top-level localhost requests and CORS health requests succeeded. Browser/network policy was a plausible cause, not conclusively diagnosed. Added an explicit local popup bridge using exact-origin, nonce-scoped browser messages and same-origin companion fetches. No browser security settings or certificate checks were disabled. Added versioned asset URLs after a normal reload combined a new page with a cached old script.
+
+Verified in the real browser on the hosted URL: access-token entry, Connect click, local bridge handshake, URL entry, Enter submission, real YouTube extraction, result rendering, Download selected ZIP click, and completed browser download. The archive contains the merged MKV plus thumbnail and passes `zipfile.testzip()`. [Hosted download screenshot](screenshots/github-pages-download.png).
+
+All 24 deterministic tests pass: nine independent HTTP tests, ten backend checks and five Node VM bridge security tests. Bridge tests reject wrong sources/origins/nonces, arbitrary paths/methods, malformed bodies and token injection; verify Blob bytes and request correlation; cover request caps, cancellation and cleanup. The launcher explicitly allows `https://namanguptaaaa.github.io`; the companion remains running for immediate use. For later sessions run `./start-local.ps1 -AllowOrigin https://namanguptaaaa.github.io`, paste its printed token, and keep the local bridge open.

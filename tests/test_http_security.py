@@ -52,6 +52,15 @@ class HTTPAcceptance(unittest.TestCase):
         self.assertEqual(headers["Access-Control-Allow-Origin"], "https://private.example")
         self.assertEqual(self.request("OPTIONS", "/api/extract", auth=False, headers={"Origin": "null"})[0], 403)
 
+    def test_public_bridge_allowlist_exposes_no_token_or_jobs(self):
+        status, _, data = self.request("GET", "/api/health", auth=False)
+        self.assertEqual(status, 200)
+        health = json.loads(data)
+        self.assertIn("https://private.example", health["allowed_origins"])
+        self.assertNotIn("*", health["allowed_origins"])
+        self.assertNotIn(self.token, data.decode())
+        self.assertNotIn("jobs", health)
+
     def test_unknown_routes_and_traversal(self):
         self.assertEqual(self.request("GET", "/api/unknown")[0], 404)
         self.assertEqual(self.request("GET", "/api/jobs/" + "0" * 32)[0], 404)

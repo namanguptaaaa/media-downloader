@@ -104,6 +104,7 @@ Tokens are generated at startup and kept only in page memory. An optional `MEDIA
 ```sh
 python -m unittest discover -s tests -v
 python -m unittest server.test_app -v
+node --test tests/test_bridge.cjs
 node --check web/app.js
 ```
 
