@@ -13,6 +13,12 @@ from server.app import create_server
 
 class StreamingTransfer(unittest.TestCase):
     def test_zip_first_bytes_arrive_while_archive_is_still_being_written(self):
+        self.transfer()
+
+    def test_interrupted_zip_is_reported_as_failed_http_transfer(self):
+        self.transfer(fail=True)
+
+    def transfer(self, fail=False):
         server = create_server(port=0, token="disposable-transfer-token", demo=True)
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
         key = "b" * 32
@@ -25,6 +31,7 @@ class StreamingTransfer(unittest.TestCase):
             if getattr(src, "name", None) == str(source):
                 dst.write(src.read(1024 * 1024)); blocked.set()
                 if not release.wait(5): raise AssertionError("Client did not receive streaming headers")
+                if fail: raise OSError("Disposable read failure")
             return original(src, dst, length)
         connection = http.client.HTTPConnection("127.0.0.1",server.server_address[1],timeout=3)
         try:
@@ -36,7 +43,11 @@ class StreamingTransfer(unittest.TestCase):
                 first = response.read(4)
                 self.assertEqual(first,b"PK\x03\x04")
                 self.assertFalse(release.is_set(), "Headers and ZIP bytes must arrive before the archive finishes")
-                release.set(); content = first + response.read()
+                release.set()
+                if fail:
+                    with self.assertRaises(http.client.IncompleteRead): response.read()
+                    return
+                content = first + response.read()
             with zipfile.ZipFile(io.BytesIO(content)) as archive:
                 self.assertIsNone(archive.testzip())
                 self.assertEqual(archive.read(source.name), source.read_bytes())

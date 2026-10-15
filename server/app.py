@@ -38,6 +38,26 @@ class APIError(Exception):
         self.status = status
 
 
+class ChunkedWriter:
+    """HTTP framing makes an interrupted ZIP a failed transfer, rather than a valid EOF."""
+    def __init__(self, target):
+        self.target = target
+
+    def write(self, data):
+        if data:
+            self.target.write(f"{len(data):x}\r\n".encode("ascii"))
+            self.target.write(data)
+            self.target.write(b"\r\n")
+        return len(data)
+
+    def flush(self):
+        self.target.flush()
+
+    def finish(self):
+        self.target.write(b"0\r\n\r\n")
+        self.flush()
+
+
 def normalize_options(value=None):
     defaults = dict(format="original", max_height=None, audio_bitrate=320, start_seconds=0, end_seconds=None)
     if value is None:
@@ -380,7 +400,9 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
-    def response_headers(self, status, kind="application/json", length=None, attachment=None):
+    def response_headers(self, status, kind="application/json", length=None, attachment=None, chunked=False):
+        if chunked:
+            self.protocol_version = "HTTP/1.1"
         self.send_response(status)
         self.send_header("Content-Type", kind)
         self.send_header("Cache-Control", "no-store")
@@ -394,6 +416,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Expose-Headers", "Content-Disposition")
         if length is not None:
             self.send_header("Content-Length", str(length))
+        if chunked:
+            self.send_header("Transfer-Encoding", "chunked")
+            self.send_header("Connection", "close")
         if attachment:
             self.send_header("Content-Disposition", 'attachment; filename="' + attachment + '"')
         self.end_headers()
@@ -510,12 +535,14 @@ class Handler(BaseHTTPRequestHandler):
                 # ZIP supports non-seekable output via data descriptors. Start the
                 # response now, instead of copying every file to a second temp ZIP.
                 self.close_connection = True
-                self.response_headers(200, "application/zip", attachment="media-" + key[:8] + ".zip")
-                with zipfile.ZipFile(self.wfile, "w", compression=zipfile.ZIP_STORED) as z:
+                self.response_headers(200, "application/zip", attachment="media-" + key[:8] + ".zip", chunked=True)
+                stream = ChunkedWriter(self.wfile)
+                with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_STORED) as z:
                     for p, item in files:
                         info = zipfile.ZipInfo.from_file(p, item["filename"])
                         with p.open("rb") as source, z.open(info, "w", force_zip64=True) as target:
                             shutil.copyfileobj(source, target, 1024 * 1024)
+                stream.finish()
                 return
             raise APIError("API route not found.", 404)
         except APIError as exc:

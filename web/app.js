@@ -360,7 +360,7 @@ async function download(path, filename, options = {}, button = null) {
     setTimeout(() => URL.revokeObjectURL(blobURL), 60000);
     status('Download handed to your browser. Check your downloads folder.', 'success');
   } catch (error) { if (attempt === generation) status(error.name === 'AbortError' ? 'Save cancelled.' : error.message, error.name === 'AbortError' ? '' : 'error'); }
-  finally { if (sink && !saved) { try { await sink.abort(); } catch { /* Writer already closed. */ } } downloading = false; if (button) button.disabled = false; updateSelection(); }
+  finally { downloadController?.abort(); if (sink && !saved) { try { await sink.abort(); } catch { /* Writer already closed. */ } } downloading = false; if (button) button.disabled = false; updateSelection(); }
 }
 $('download-selected').addEventListener('click', () => {
   if (!currentJob || !selected.size) return;
