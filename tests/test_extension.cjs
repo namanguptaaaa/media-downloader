@@ -173,3 +173,56 @@ test('export schema agrees across Chrome JSON relay and rejects unknown/injectab
   }
   h.send({namespace,nonce,type:'close'}); await h.flush();
 });
+
+test('streaming save writes bytes before completion and ACK waits for disk backpressure', async () => {
+  const bytes = new Uint8Array(120000); for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 37) % 256;
+  bytes.set([80, 75, 3, 4]); // ZIP header controls survive binary transport
+  const h = workerHarness(undefined, url => url.endsWith('/api/extract') ? new Response('{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}', {status:202,headers:{'Content-Type':'application/json'}}) : new Response(bytes, { headers: { 'Content-Type': 'application/zip', 'Content-Length': String(bytes.length) } }));
+  const listeners = new Map(), posted = [];
+  const window = { location: { href: pageURL, origin, hostname: 'namanguptaaaa.github.io', protocol: 'https:' }, open() { throw new Error('Extension transport must not open windows'); }, addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn); }, removeEventListener(name, fn) { listeners.get(name)?.delete(fn); }, postMessage(data, target) { assert.equal(target, origin); posted.push(data); queueMicrotask(() => { for (const fn of [...(listeners.get('message') || [])]) fn({ data, origin, source: window }); }); } };
+  window.top = window;
+  const shared = { window, location: window.location, URL, Blob, Response, Uint8Array, TextEncoder, DOMException, AbortController, btoa, atob, setTimeout, clearTimeout, setInterval, clearInterval, localStorage: storageTrap(), sessionStorage: storageTrap() };
+  let connectCount = 0;
+  const contentContext = vm.createContext({ ...shared, chrome: { runtime: { connect(options) { connectCount++; assert.equal(options.name, namespace); return h.pair.left; } } } });
+  vm.runInContext(source('extension/validation.js'), contentContext);
+  vm.runInContext(source('extension/content.js'), contentContext);
+  for (const fn of listeners.get('message')) {
+    fn({ data: { namespace, nonce: randomUUID(), type: 'hello' }, source: {}, origin });
+    fn({ data: { namespace, nonce: randomUUID(), type: 'hello' }, source: window, origin: 'https://evil.example' });
+  }
+  assert.equal(connectCount, 0);
+  vm.runInNewContext(source('web/extension-client.js'), { ...shared, crypto: { randomUUID } });
+  const client = window.createLocalMediaExtension(); await client.ready;
+  window.postMessage({ namespace, nonce: randomUUID(), type: 'request', id: randomUUID(), path: '/api/health', method: 'GET' }, origin);
+  await h.flush(); assert.equal(h.calls.length, 0);
+  const exportBody=JSON.stringify({url:'https://youtu.be/BaW_jenozKc',options:{format:'mp4',max_height:720,start_seconds:.25,end_seconds:.75}});
+  const extraction=await client.request('/api/extract',{method:'POST',body:exportBody},token);
+  assert.equal(extraction.status,202); assert.equal((await extraction.json()).id,'a'.repeat(32));
+  assert.equal(h.calls[0].bodyAtFetch,exportBody);
+  const written = [], progress = [];
+  let release;
+  const diskGate = new Promise(resolve => { release = resolve; });
+  let settled = false;
+  const transfer = client.request('/api/jobs/' + 'a'.repeat(32) + '/download', {
+    method: 'POST', body: '{"item_ids":["1"]}',
+    async onChunk(chunk) { written.push(Buffer.from(chunk)); if (written.length === 1) await diskGate; },
+    onProgress(received, total) { progress.push([received, total]); }
+  }, token).then(value => { settled = true; return value; });
+  await h.flush();
+  assert.equal(written.length, 1, 'First bytes reached disk before request completion');
+  assert.equal(settled, false);
+  const ackBefore = posted.filter(m => m.type === 'ack').length;
+  await h.flush();
+  assert.equal(posted.filter(m => m.type === 'ack').length, ackBefore, 'Disk backpressure prevents next chunk');
+  release();
+  const response = await transfer;
+  assert.equal((await response.arrayBuffer()).byteLength, 0, 'Streaming mode does not retain a second full file');
+  assert.deepEqual(Buffer.concat(written), Buffer.from(bytes));
+  assert.deepEqual(progress.at(-1), [bytes.length, bytes.length]);
+  await assert.rejects(client.request('/api/jobs/' + 'a'.repeat(32) + '/files/1', {
+    onChunk() { throw new Error('Disposable disk failure'); }
+  }, token), /invalid media response/);
+  await h.flush();
+  assert.ok(h.calls.at(-1).options.signal.aborted, 'Disk failure cancels the upstream read');
+  client.close(); await h.flush(); assert.equal(h.pair.disconnected, true);
+});

@@ -60,7 +60,9 @@ chrome.runtime.onConnect.addListener(port => {
 
   async function request(message, operation) {
     const media = /\/files\/|\/download$/.test(message.path);
-    const timer = setTimeout(() => abort(operation), media ? 300000 : 30000);
+    let timer;
+    const touch = () => { clearTimeout(timer); timer = setTimeout(() => abort(operation), media ? 300000 : 30000); };
+    touch();
     let reader;
     try {
       const headers = {};
@@ -75,13 +77,14 @@ chrome.runtime.onConnect.addListener(port => {
       if (Number.isFinite(length) && length > relay.maxBytes) throw new Error('limit');
       const disposition = response.headers.get('Content-Disposition') || '';
       const filename = /filename="([A-Za-z0-9_.-]{1,200})"/.exec(disposition)?.[1];
-      send({ type: 'headers', id: message.id, status: response.status, contentType: response.headers.get('Content-Type') || 'application/octet-stream', filename });
+      send({ type: 'headers', id: message.id, status: response.status, contentType: response.headers.get('Content-Type') || 'application/octet-stream', filename, length: Number.isFinite(length) && length > 0 ? length : null });
       if (response.body) {
         reader = response.body.getReader();
         let total = 0;
         while (true) {
           const result = await reader.read();
           if (result.done) break;
+          touch();
           total += result.value.byteLength;
           if (total > relay.maxBytes) throw new Error('limit');
           for (let start = 0; start < result.value.byteLength; start += relay.chunkBytes) {

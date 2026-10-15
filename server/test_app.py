@@ -162,9 +162,8 @@ class ExtractionTests(unittest.TestCase):
     def test_failed_video_fragments_not_exposed_and_partial_warned(self):
         self.store.ffmpeg = "local-ffmpeg"
         def fake_run(command, folder):
-            if "--skip-download" in command:
+            if "--write-thumbnail" in command:
                 (folder / "thumbnail.jpg").write_bytes(b"original-image")
-                return 0
             (folder / "video-id.f137.mp4").write_bytes(b"unmerged-no-audio")
             return 1
         with patch("server.app.dependency_version", return_value="test"), patch.object(self.store, "run", side_effect=fake_run):
@@ -184,6 +183,20 @@ class ExtractionTests(unittest.TestCase):
             self.store.extract(self.key, "Instagram", "https://www.instagram.com/p/test/")
         self.assertEqual(self.store.get(self.key)["state"], "ready")
         self.assertIn("FFmpeg", self.store.get(self.key)["warnings"][0])
+
+    def test_youtube_video_and_thumbnail_share_one_extraction(self):
+        self.store.ffmpeg = "local-ffmpeg"
+        calls = []
+        def fake_run(command, folder):
+            calls.append(command)
+            (folder / "complete.mkv").write_bytes(b"merged original streams")
+            (folder / "thumbnail.webp").write_bytes(b"original thumbnail")
+            return 0
+        with patch("server.app.dependency_version", return_value="test"), patch.object(self.store, "run", side_effect=fake_run):
+            self.store.extract(self.key, "YouTube", "https://www.youtube.com/watch?v=jNQXAC9IVRw")
+        self.assertEqual(len(calls), 1)
+        self.assertIn("--write-thumbnail", calls[0])
+        self.assertEqual({i["kind"] for i in self.store.get(self.key)["items"]}, {"video", "image"})
 
     def test_completed_jobs_expire_and_cleanup(self):
         self.store.jobs[self.key].update(state="ready", updated=time.time() - 4000)

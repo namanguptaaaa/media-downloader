@@ -242,7 +242,8 @@ $('extract-form').addEventListener('submit', async event => {
         break;
       }
       if (!['queued', 'running'].includes(job.state)) throw new Error('The server returned an unknown extraction state.');
-      status(job.phase || (job.state === 'queued' ? 'Queued on your server…' : 'Extracting media…'));
+      const activity = job.downloaded_bytes > 0 ? ` · ${bytes(job.downloaded_bytes)} received${job.speed_bytes > 0 ? ` · ${bytes(job.speed_bytes)}/s` : ''}` : '';
+      status((job.phase || (job.state === 'queued' ? 'Queued on your server…' : 'Extracting media…')) + activity);
       if (Number.isFinite(job.progress)) $('progress').value = Math.max(0, Math.min(100, job.progress));
       else $('progress').removeAttribute('value');
       await delay(1000, signal);
@@ -313,9 +314,44 @@ async function download(path, filename, options = {}, button = null) {
   downloadController = new AbortController();
   if (button) button.disabled = true;
   updateSelection();
+  let sink = null;
+  let saved = false;
   try {
-    status('Transferring files from your private server…');
-    const response = await request(path, { ...options, signal: downloadController.signal });
+    // Invoke the picker in this click's activation, before waiting for network.
+    // Chrome streams to disk with bounded buffers; no extension permissions added.
+    if (typeof window.showSaveFilePicker === 'function' && !connection.bridge) {
+      status('Choose where to save. Transfer starts as soon as you confirm.');
+      const handle = await window.showSaveFilePicker({ suggestedName: filename });
+      if (attempt !== generation) return;
+      sink = await handle.createWritable();
+    }
+    let lastUpdate = 0;
+    const onProgress = (received, total) => {
+      const now = Date.now();
+      if (attempt !== generation || now - lastUpdate < 200) return;
+      lastUpdate = now;
+      status(`Saving ${bytes(received)}${total > 0 ? ` of ${bytes(total)} · ${Math.min(100, Math.round(received / total * 100))}%` : ''}…`);
+    };
+    status(sink ? 'Streaming files to your selected file…' : 'Transferring files to browser memory…');
+    const response = await request(path, { ...options, signal: downloadController.signal, onChunk: sink ? chunk => sink.write(chunk) : undefined, onProgress });
+    if (sink) {
+      if (!connection.extension) {
+        const reader = response.body.getReader();
+        let received = 0;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            await sink.write(value); received += value.byteLength;
+            onProgress(received, Number(response.headers.get('Content-Length')));
+          }
+        } finally { reader.releaseLock(); }
+      }
+      if (attempt !== generation) return;
+      await sink.close(); saved = true;
+      status('File saved to your selected location.', 'success');
+      return;
+    }
     const blob = await response.blob();
     if (attempt !== generation) return;
     const blobURL = URL.createObjectURL(blob);
@@ -323,8 +359,8 @@ async function download(path, filename, options = {}, button = null) {
     document.body.append(anchor); anchor.click(); anchor.remove();
     setTimeout(() => URL.revokeObjectURL(blobURL), 60000);
     status('Download handed to your browser. Check your downloads folder.', 'success');
-  } catch (error) { if (attempt === generation && error.name !== 'AbortError') status(error.message, 'error'); }
-  finally { downloading = false; if (button) button.disabled = false; updateSelection(); }
+  } catch (error) { if (attempt === generation) status(error.name === 'AbortError' ? 'Save cancelled.' : error.message, error.name === 'AbortError' ? '' : 'error'); }
+  finally { if (sink && !saved) { try { await sink.abort(); } catch { /* Writer already closed. */ } } downloading = false; if (button) button.disabled = false; updateSelection(); }
 }
 $('download-selected').addEventListener('click', () => {
   if (!currentJob || !selected.size) return;

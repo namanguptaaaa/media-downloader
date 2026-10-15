@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "minimum_chrome_version": "114",
   "name": "Private Media Downloader Connection",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Connects your Media Downloader page to your local companion. No persistent tabs, tracking, or stored credentials.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvKRQJMqTM1yUP3RYC0vUG4w1RvRb6uHddlMDqSc5dCL8bQ0DKYOFtC5HOzWO9YBB3zMpdOaW6EXaHNYpv8oBZB7lz6NCBjZnRBkqduButKnSU/UPclc8QDRmHQ5M22QKqEIG28q4aKBWW3oxfTsjHD15FxuTbi+8xwrSZeJSoaYyyEzcCsP6tDJk3QVWYDKKnfKxw5NZaCCNiUKB0nwIMg2V6m/jSUrkWAUnr1Rnyl/NBe9PPPehPtXNLkoxlN3FnQYgndiDCvlHCUTY+sQDL/qc7InPVnn3NFjSJ/5MTcUQR+J9VZqPBzdf8FT2NhJ+1P1MCrTHYE5lAee7IhzygQIDAQAB",
   "host_permissions": ["http://127.0.0.1:8765/*"],

@@ -23,7 +23,7 @@ import time
 from urllib.parse import parse_qs, unquote, urlsplit
 import zipfile
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".heic"}
 VIDEO_EXT = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
 AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".opus", ".ogg", ".flac"}
@@ -205,6 +205,12 @@ class Store:
         with self.lock:
             self.processes.add(process)
         start = time.monotonic()
+        key = folder.name
+        last_size = 0
+        last_activity = start
+        last_report = 0
+        extracting = "yt_dlp" in command or "gallery_dl" in command
+        idle_limit = 90 if "yt_dlp" in command else 35
         try:
             while process.poll() is None:
                 if self.stop.wait(.25) or time.monotonic() - start > 1200:
@@ -221,6 +227,18 @@ class Store:
                 if size > MAX_JOB_BYTES:
                     self._kill(process)
                     raise APIError("This post exceeds the 4 GB job limit.")
+                now = time.monotonic()
+                if size != last_size:
+                    last_activity = now
+                if extracting and now - last_activity > idle_limit:
+                    self._kill(process)
+                    return 1
+                if key in self.jobs and extracting and now - last_report >= 1:
+                    elapsed = max(now - start, .01)
+                    self.update(key, downloaded_bytes=size, elapsed_seconds=round(elapsed),
+                                speed_bytes=max(0, round((size - last_size) / max(now - last_report, .01))) if last_report else 0)
+                    last_report = now
+                    last_size = size
             return process.returncode
         finally:
             if process.poll() is None:
@@ -243,9 +261,10 @@ class Store:
             raise APIError("Local FFmpeg is required for converted exports.")
         for index, source in enumerate(sources, 1):
             target = folder / f"export-{index}.{options['format']}"
-            command = [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-abort_on", "empty_output+empty_output_stream", "-i", str(source)]
+            command = [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-abort_on", "empty_output+empty_output_stream"]
             if options["start_seconds"]:
                 command += ["-ss", str(options["start_seconds"])]
+            command += ["-i", str(source)]
             if options["end_seconds"] is not None:
                 command += ["-t", str(options["end_seconds"] - options["start_seconds"])]
             if options["format"] == "mp4":
@@ -272,9 +291,9 @@ class Store:
             else:
                 if not dependency_version("yt-dlp") or not dependency_version("gallery-dl"):
                     raise APIError("Install the dependencies from requirements.txt, then restart the service.")
-                ytdlp = [sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-plugin-dirs", "--no-cache-dir", "--no-progress", "--quiet", "--no-warnings", "--socket-timeout", "25", "--retries", "2", "--fragment-retries", "2", "--max-filesize", "4G", "--use-extractors", "youtube,twitter,instagram,reddit", "--format", format_selector(options), "--merge-output-format", "mkv", "--restrict-filenames", "--output", str(folder / "video-%(id)s-%(autonumber)s.%(ext)s")]
+                ytdlp = [sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-plugin-dirs", "--no-cache-dir", "--no-progress", "--quiet", "--no-warnings", "--socket-timeout", "12", "--retries", "1", "--fragment-retries", "1", "--concurrent-fragments", "4", "--max-filesize", "4G", "--use-extractors", "youtube,twitter,instagram,reddit", "--format", format_selector(options), "--merge-output-format", "mkv", "--restrict-filenames", "--output", str(folder / "video-%(id)s-%(autonumber)s.%(ext)s")]
                 if platform == "YouTube":
-                    ytdlp += ["--no-playlist"]
+                    ytdlp += ["--no-playlist", "--write-thumbnail"]
                 if self.ffmpeg:
                     ytdlp += ["--ffmpeg-location", self.ffmpeg]
                 if self.js_runtime:
@@ -292,11 +311,13 @@ class Store:
                     warnings.append("Video extraction did not complete. This may be an image-only post, require login, or need an extractor update." if self.ffmpeg else "Video extraction requires FFmpeg. Original images can still be downloaded.")
                 self.update(key, phase="Checking original images", progress=65)
                 if platform == "YouTube":
-                    # Best available source thumbnail, rather than a resized preview.
-                    image_code = self.run(ytdlp + ["--skip-download", "--write-thumbnail", "--", url], folder)
+                    # Reuse this extraction's best thumbnail, avoiding a second metadata/JS round trip.
+                    if not self.ffmpeg:
+                        self.run(ytdlp + ["--skip-download", "--", url], folder)
+                    image_code = 0 if any(p.suffix.lower() in IMAGE_EXT for p in folder.rglob("*")) else 1
                 else:
                     category = {"X/Twitter": "twitter", "Instagram": "instagram", "Reddit": "reddit"}[platform]
-                    gallery = [sys.executable, "-m", "gallery_dl", "--config-ignore", "--no-input", "--quiet", "--no-postprocessors", "--cache-file", ":memory:", "--http-timeout", "25", "--retries", "2", "--directory", str(folder), "--windows-filenames", "--range", "1-100", "--whitelist", category, "--filter", "extension.lower() in ('jpg','jpeg','png','webp','gif','avif','heic')", "-o", "extractor.reddit.comments=0", "-o", "extractor.reddit.morecomments=false"]
+                    gallery = [sys.executable, "-m", "gallery_dl", "--config-ignore", "--no-input", "--quiet", "--no-postprocessors", "--cache-file", ":memory:", "--http-timeout", "10", "--retries", "0", "--directory", str(folder), "--windows-filenames", "--range", "1-100", "--whitelist", category, "--filter", "extension.lower() in ('jpg','jpeg','png','webp','gif','avif','heic')", "-o", "extractor.reddit.comments=0", "-o", "extractor.reddit.morecomments=false"]
                     if self.cookies:
                         gallery += ["--cookies", self.cookies]
                     image_code = self.run(gallery + ["--", url], folder)
@@ -450,7 +471,7 @@ class Handler(BaseHTTPRequestHandler):
                 p, item = self.file_for(key, item_id)
                 with p.open("rb") as source:
                     self.response_headers(200, mimetypes.guess_type(p.name)[0] or "application/octet-stream", item["size"], item["filename"])
-                    shutil.copyfileobj(source, self.wfile)
+                    shutil.copyfileobj(source, self.wfile, 1024 * 1024)
                 return
             if path.startswith("/api/"):
                 raise APIError("API route not found.", 404)
@@ -486,14 +507,15 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(ids, list) or not ids or len(ids) > 100 or any(not isinstance(i, str) for i in ids):
                     raise APIError("Select between 1 and 100 media item IDs.")
                 files = [self.file_for(key, item_id) for item_id in dict.fromkeys(ids)]
-                with tempfile.TemporaryFile() as archive:
-                    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as z:
-                        for p, item in files:
-                            z.write(p, item["filename"])
-                    length = archive.tell()
-                    archive.seek(0)
-                    self.response_headers(200, "application/zip", length, "media-" + key[:8] + ".zip")
-                    shutil.copyfileobj(archive, self.wfile)
+                # ZIP supports non-seekable output via data descriptors. Start the
+                # response now, instead of copying every file to a second temp ZIP.
+                self.close_connection = True
+                self.response_headers(200, "application/zip", attachment="media-" + key[:8] + ".zip")
+                with zipfile.ZipFile(self.wfile, "w", compression=zipfile.ZIP_STORED) as z:
+                    for p, item in files:
+                        info = zipfile.ZipInfo.from_file(p, item["filename"])
+                        with p.open("rb") as source, z.open(info, "w", force_zip64=True) as target:
+                            shutil.copyfileobj(source, target, 1024 * 1024)
                 return
             raise APIError("API route not found.", 404)
         except APIError as exc:

@@ -17,6 +17,12 @@ No bridge window, extension popup, or extra tab needs to stay open. The local se
 
 This is an unpacked extension, not a Chrome Web Store installation. When updating its files, click **Reload** on its Chrome extensions card and reload the website. The Codex in-app browser does not load this Chrome extension; use your installed Google Chrome. The extension connection uses port 8765; private HTTPS deployments use the website's **Direct connection** mode.
 
+## Streaming saves in Chrome
+
+Click a file or **Download selected ZIP**, choose its destination in Chrome's Save as dialog, and it streams to that file immediately. The page shows transferred bytes while saving. It no longer buffers an entire video/ZIP in browser memory before opening a save prompt. ZIPs stream directly from the companion without building another full temporary archive. No new extension permissions are required. Older browsers and the optional bridge retain the buffered fallback.
+
+Reload the unpacked extension for version 1.2.0 and refresh the website for this update. File streaming works through the existing relay protocol; updated extension headers add total-size progress and its active-transfer timeout now resets as bytes arrive. Extraction remains separate from saving: original-quality source media must first reach the local companion. YouTube video and its best thumbnail now share one extraction. Platform stalls are bounded and downloaded-byte activity is visible.
+
 ## Export controls
 
 Paste a single URL and extract for original best available video and unchanged images. Expand **Download options** for H.264/AAC MP4, MP3 (128–320 kbps), WAV, a maximum source resolution, or start/end seconds on converted outputs. MP4/MP3 re-encode locally; they cannot improve source quality. Images stay unchanged. X video extraction makes one bounded direct syndication retry after a primary failure, with a partial-source warning when used.
