@@ -11,7 +11,7 @@ The hosted website defaults to the Manifest V3 extension. Install it once in **G
 1. Download [the extension ZIP](https://namanguptaaaa.github.io/media-downloader/extension.zip) and unzip it into a permanent folder. In this workspace, the ready-to-load folder is `extension/`.
 2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the folder containing `manifest.json`.
 3. Start the companion with `./start-local.ps1 -ChromeExtension` and keep that terminal running. Alternatively use `python -m server.app --allow-origin chrome-extension://ifalbjaplddiebbnbecaalonfpojnamk`.
-4. Open the hosted website in that same Chrome profile, reload it after installation, keep **Chrome extension Â· in the background** selected, paste the printed companion token, and connect.
+4. Open the hosted website in that same Chrome profile, reload it after installation, keep **Chrome extension · in the background** selected, paste the printed companion token, and connect.
 
 No bridge window, extension popup, or extra tab needs to stay open. The local server still performs extraction; the extension makes requests to it in a background service worker. Close the downloader page or disconnect to end its active extension connection. It has no storage/tabs/analytics permissions, requests only `http://127.0.0.1:8765/*`, and injects its relay only into this hosted downloader project. Credentials remain in memory. The manifest includes a public key to preserve its extension ID; it is not a secret or a platform API key.
 

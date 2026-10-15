@@ -15,13 +15,13 @@ Script/result response-text hashes identify text returned to the inspection comm
 
 ## Observed browser contract
 
-The saved homepage's form (lines 257â€“259) declares `data-hx-post="/"`, target `#target`, HTML swapping, selection of `#result`, and URL-history pushing. Input `name="id"` contains the submitted tweet URL; hidden `locale` is `en`. Its include-values declaration adds `tt`, `ts`, and `source:'form'`. Values are supplied by the page; their validation/significance on the server is unknown. The small include-values asset hooks the HTMX request-configuration event and merges the declared parameters. This is request assembly, not media extraction.
+The saved homepage's form (lines 257–259) declares `data-hx-post="/"`, target `#target`, HTML swapping, selection of `#result`, and URL-history pushing. Input `name="id"` contains the submitted tweet URL; hidden `locale` is `en`. Its include-values declaration adds `tt`, `ts`, and `source:'form'`. Values are supplied by the page; their validation/significance on the server is unknown. The small include-values asset hooks the HTMX request-configuration event and merges the declared parameters. This is request assembly, not media extraction.
 
 The anonymous test used a fresh page's declared fields, normal URL-encoded form submission and HTMX request headers. It returned a failure event despite HTTP 200. No successful download links or actual quality ladder were established by that probe. Repeating requests, guessing hidden endpoints, or bypassing a challenge would not resolve that uncertainty within this bounded scope.
 
 Visible result-handling JavaScript references `.download-btn`, `.quality-best`, `href`, and `data-directurl`. Click handlers navigate to the returned link; some paths involve an advertisement modal. The homepage also contains MP3-conversion UI handlers for `mp3_convert`, including disabled/waiting/ready/error states. Those handlers do not reveal the conversion endpoint, source variant selection, FFmpeg invocation, download-file integrity or exact result markup. No trim input was observed in the captured homepage.
 
-The page loads Google ad and tag-manager scripts and pushes the inserted URL into `dataLayer` on submission/success/failure (saved HTML lines 1309â€“1312, 1343â€“1347, 1371â€“1375). These are direct evidence of a URL-bearing client telemetry queue, not proof of every external transmission. Reusing that frontend would contradict this project's no-analytics/no-URL-logging requirements.
+The page loads Google ad and tag-manager scripts and pushes the inserted URL into `dataLayer` on submission/success/failure (saved HTML lines 1309–1312, 1343–1347, 1371–1375). These are direct evidence of a URL-bearing client telemetry queue, not proof of every external transmission. Reusing that frontend would contradict this project's no-analytics/no-URL-logging requirements.
 
 ## What remains opaque
 
