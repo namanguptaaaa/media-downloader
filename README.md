@@ -11,11 +11,19 @@ The hosted website defaults to the Manifest V3 extension. Install it once in **G
 1. Download [the extension ZIP](https://namanguptaaaa.github.io/media-downloader/extension.zip) and unzip it into a permanent folder. In this workspace, the ready-to-load folder is `extension/`.
 2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the folder containing `manifest.json`.
 3. Start the companion with `./start-local.ps1 -ChromeExtension` and keep that terminal running. Alternatively use `python -m server.app --allow-origin chrome-extension://ifalbjaplddiebbnbecaalonfpojnamk`.
-4. Open the hosted website in that same Chrome profile, reload it after installation, keep **Chrome extension · in the background** selected, paste the printed companion token, and connect.
+4. Open the hosted website in that same Chrome profile, reload it after installation, keep **Chrome extension Â· in the background** selected, paste the printed companion token, and connect.
 
 No bridge window, extension popup, or extra tab needs to stay open. The local server still performs extraction; the extension makes requests to it in a background service worker. Close the downloader page or disconnect to end its active extension connection. It has no storage/tabs/analytics permissions, requests only `http://127.0.0.1:8765/*`, and injects its relay only into this hosted downloader project. Credentials remain in memory. The manifest includes a public key to preserve its extension ID; it is not a secret or a platform API key.
 
 This is an unpacked extension, not a Chrome Web Store installation. When updating its files, click **Reload** on its Chrome extensions card and reload the website. The Codex in-app browser does not load this Chrome extension; use your installed Google Chrome. The extension connection uses port 8765; private HTTPS deployments use the website's **Direct connection** mode.
+
+## Export controls
+
+Paste a single URL and extract for original best available video and unchanged images. Expand **Download options** for H.264/AAC MP4, MP3 (128–320 kbps), WAV, a maximum source resolution, or start/end seconds on converted outputs. MP4/MP3 re-encode locally; they cannot improve source quality. Images stay unchanged. X video extraction makes one bounded direct syndication retry after a primary failure, with a partial-source warning when used.
+
+These controls were independently implemented after investigating the public [ssstwitter](https://ssstwitter.com/) and [Yout](https://yout.com/) workflows with browser observations and official REA static analysis. Their private server extractors remain unknown; no public downloader endpoints, copied scripts or analytics are used. Evidence and limitations: [ssstwitter report](docs/sites/SSSTWITTER.md), [Yout report](docs/sites/YOUT.md).
+
+This update requires reloading the unpacked Chrome extension (version 1.1.0) and refreshing the website. In the prepared workspace its files are already updated; click **Reload** on its card in `chrome://extensions`.
 
 ## Run locally
 

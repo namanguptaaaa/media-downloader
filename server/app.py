@@ -8,6 +8,7 @@ import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.metadata
 import json
+import math
 import mimetypes
 import os
 from pathlib import Path
@@ -25,6 +26,7 @@ import zipfile
 VERSION = "1.0.0"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".heic"}
 VIDEO_EXT = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
+AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".opus", ".ogg", ".flac"}
 MAX_JOB_BYTES = 4 * 1024**3
 MAX_JOBS = 12
 TTL = 3600
@@ -34,6 +36,45 @@ class APIError(Exception):
     def __init__(self, message, status=400):
         super().__init__(message)
         self.status = status
+
+
+def normalize_options(value=None):
+    defaults = dict(format="original", max_height=None, audio_bitrate=320, start_seconds=0, end_seconds=None)
+    if value is None:
+        return defaults
+    if not isinstance(value, dict) or set(value) - set(defaults):
+        raise APIError("Export options must be an object containing only supported fields.")
+    options = defaults | value
+    if not isinstance(options["format"], str) or options["format"] not in {"original", "mp4", "mp3", "wav"}:
+        raise APIError("Choose Original, MP4, MP3, or WAV export.")
+    height = options["max_height"]
+    if height is not None and (type(height) is not int or height not in {360, 480, 720, 1080, 1440, 2160, 4320}):
+        raise APIError("Choose a supported maximum video height.")
+    bitrate = options["audio_bitrate"]
+    if type(bitrate) is not int or bitrate not in {128, 192, 256, 320}:
+        raise APIError("Choose a supported MP3 audio bitrate.")
+    for field in ("start_seconds", "end_seconds"):
+        number = options[field]
+        if field == "end_seconds" and number is None:
+            continue
+        if isinstance(number, bool) or not isinstance(number, (int, float)) or not 0 <= number <= 86400 or not math.isfinite(number):
+            raise APIError("Trim times must be finite seconds from 0 to 86400.")
+    if options["end_seconds"] is not None and options["end_seconds"] <= options["start_seconds"]:
+        raise APIError("Trim end must be later than trim start.")
+    if options["format"] == "original" and (options["start_seconds"] != 0 or options["end_seconds"] is not None):
+        raise APIError("Choose MP4, MP3, or WAV for trimming; Original preserves source codecs without re-encoding.")
+    if options["format"] in {"mp3", "wav"} and height is not None:
+        raise APIError("Maximum video height applies only to Original or MP4.")
+    if options["format"] != "mp3" and bitrate != 320:
+        raise APIError("Custom audio bitrate applies only to MP3.")
+    return options
+
+
+def format_selector(options):
+    if options["format"] in {"mp3", "wav"}:
+        return "ba/b"
+    height = options["max_height"]
+    return f"bv*[height<={height}]+ba/b[height<={height}]" if height else "bv*+ba/b"
 
 
 def validate_url(value):
@@ -132,16 +173,17 @@ class Store:
         with self.lock:
             self.jobs[key].update(fields, updated=time.time())
 
-    def submit(self, url):
+    def submit(self, url, options=None):
         platform, canonical = validate_url(url)
+        options = normalize_options(options)
         self.cleanup()
         with self.lock:
             if len(self.jobs) >= MAX_JOBS:
                 raise APIError("Job limit reached. Restart the service or wait for old jobs to expire.", 429)
             key = secrets.token_hex(16)
-            self.jobs[key] = dict(id=key, state="queued", phase="Queued", progress=0, title=platform + " media", platform=platform, items=[], updated=time.time())
+            self.jobs[key] = dict(id=key, state="queued", phase="Queued", progress=0, title=platform + " media", platform=platform, options=options, items=[], updated=time.time())
             (self.root / key).mkdir()
-            self.pool.submit(self.extract, key, platform, canonical)
+            self.pool.submit(self.extract, key, platform, canonical, options)
             return key
 
     @staticmethod
@@ -187,9 +229,42 @@ class Store:
             with self.lock:
                 self.processes.discard(process)
 
-    def extract(self, key, platform, url):
+    @staticmethod
+    def clean_failed_media(folder):
+        for p in folder.rglob("*"):
+            if p.is_file() and (p.suffix.lower() in VIDEO_EXT | AUDIO_EXT or p.name.endswith((".part", ".ytdl"))):
+                p.unlink()
+
+    def convert_exports(self, folder, options):
+        if options["format"] == "original":
+            return 0
+        sources = [p for p in sorted(folder.rglob("*")) if p.is_file() and p.suffix.lower() in VIDEO_EXT | AUDIO_EXT and not re.search(r"\.f\d+\.", p.name)]
+        if sources and not self.ffmpeg:
+            raise APIError("Local FFmpeg is required for converted exports.")
+        for index, source in enumerate(sources, 1):
+            target = folder / f"export-{index}.{options['format']}"
+            command = [self.ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-abort_on", "empty_output+empty_output_stream", "-i", str(source)]
+            if options["start_seconds"]:
+                command += ["-ss", str(options["start_seconds"])]
+            if options["end_seconds"] is not None:
+                command += ["-t", str(options["end_seconds"] - options["start_seconds"])]
+            if options["format"] == "mp4":
+                command += ["-map", "0:v:0", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]
+            elif options["format"] == "mp3":
+                command += ["-map", "0:a:0", "-vn", "-c:a", "libmp3lame", "-b:a", str(options["audio_bitrate"]) + "k"]
+            else:
+                command += ["-map", "0:a:0", "-vn", "-c:a", "pcm_s16le"]
+            command += ["-map_metadata", "-1", "-y", str(target)]
+            if self.run(command, folder) != 0 or not target.is_file() or not target.stat().st_size:
+                target.unlink(missing_ok=True)
+                raise APIError("Local export failed. Audio exports require an audio track; trim start must be inside the media. Check FFmpeg or choose Original.")
+            source.unlink()
+        return len(sources)
+
+    def extract(self, key, platform, url, options=None):
         folder = self.root / key
         try:
+            options = normalize_options(options)
             self.update(key, state="running", phase="Downloading original media", progress=10)
             warnings = []
             if self.demo:
@@ -197,7 +272,7 @@ class Store:
             else:
                 if not dependency_version("yt-dlp") or not dependency_version("gallery-dl"):
                     raise APIError("Install the dependencies from requirements.txt, then restart the service.")
-                ytdlp = [sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-plugin-dirs", "--no-cache-dir", "--no-progress", "--quiet", "--no-warnings", "--socket-timeout", "25", "--retries", "2", "--fragment-retries", "2", "--max-filesize", "4G", "--use-extractors", "youtube,twitter,instagram,reddit", "--format", "bv*+ba/b", "--merge-output-format", "mkv", "--restrict-filenames", "--output", str(folder / "video-%(id)s-%(autonumber)s.%(ext)s")]
+                ytdlp = [sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-plugin-dirs", "--no-cache-dir", "--no-progress", "--quiet", "--no-warnings", "--socket-timeout", "25", "--retries", "2", "--fragment-retries", "2", "--max-filesize", "4G", "--use-extractors", "youtube,twitter,instagram,reddit", "--format", format_selector(options), "--merge-output-format", "mkv", "--restrict-filenames", "--output", str(folder / "video-%(id)s-%(autonumber)s.%(ext)s")]
                 if platform == "YouTube":
                     ytdlp += ["--no-playlist"]
                 if self.ffmpeg:
@@ -207,10 +282,13 @@ class Store:
                 if self.cookies:
                     ytdlp += ["--cookies", self.cookies]
                 video_code = self.run(ytdlp + ["--", url], folder) if self.ffmpeg else 1
+                if video_code and platform == "X/Twitter" and self.ffmpeg:
+                    self.clean_failed_media(folder)
+                    video_code = self.run(ytdlp + ["--extractor-args", "twitter:api=syndication", "--", url], folder)
+                    if not video_code:
+                        warnings.append("Recovered X media through its public syndication fallback; this source can omit media or metadata.")
                 if video_code:
-                    for p in folder.rglob("*"):
-                        if p.is_file() and p.suffix.lower() in VIDEO_EXT:
-                            p.unlink()
+                    self.clean_failed_media(folder)
                     warnings.append("Video extraction did not complete. This may be an image-only post, require login, or need an extractor update." if self.ffmpeg else "Video extraction requires FFmpeg. Original images can still be downloaded.")
                 self.update(key, phase="Checking original images", progress=65)
                 if platform == "YouTube":
@@ -224,19 +302,33 @@ class Store:
                     image_code = self.run(gallery + ["--", url], folder)
                 if image_code:
                     warnings.append("Image extraction did not complete. This may be a video-only post, require login, or need an extractor update.")
+            if options["format"] != "original":
+                self.update(key, phase="Converting local export", progress=80)
+                count = self.convert_exports(folder, options)
+                if not count:
+                    warnings.append("The requested export could not be produced: no source audio/video was recovered. Only available original images are shown.")
+                else:
+                    notices = {
+                        "mp4": "MP4 is re-encoded as H.264/AAC for compatibility; it is not unchanged source media.",
+                        "mp3": f"MP3 is re-encoded at {options['audio_bitrate']} kbps. A higher bitrate cannot improve the source audio quality.",
+                        "wav": "WAV contains decoded 16-bit PCM audio; it does not improve the source audio quality.",
+                    }
+                    warnings.append(notices[options["format"]])
             items = []
             for p in sorted(folder.rglob("*")):
-                if p.is_file() and p.suffix.lower() in IMAGE_EXT | VIDEO_EXT and not re.search(r"\.f\d+\.", p.name):
+                if p.is_file() and p.suffix.lower() in IMAGE_EXT | VIDEO_EXT | {".mp3", ".wav"} and not re.search(r"\.f\d+\.", p.name):
                     # A safe basename keeps Content-Disposition and ZIP entries inert.
                     name = re.sub(r"[^A-Za-z0-9_.-]", "_", p.name)[:180]
                     item_id = str(len(items) + 1)
                     target = folder / (item_id + "-" + name)
                     p.rename(target)
-                    items.append(dict(id=item_id, kind="image" if p.suffix.lower() in IMAGE_EXT else "video", filename=target.name, size=target.stat().st_size))
+                    kind = "image" if p.suffix.lower() in IMAGE_EXT else ("audio" if p.suffix.lower() in AUDIO_EXT else "video")
+                    items.append(dict(id=item_id, kind=kind, filename=target.name, size=target.stat().st_size))
             if not items:
                 raise APIError("No downloadable media was returned. The post may require login, be unavailable, or the platform extractor may need an update.")
-            if platform == "YouTube" and not self.demo and not any(i["kind"] == "video" for i in items):
-                warnings.append("Only a thumbnail was recovered; the YouTube video is unavailable. Install FFmpeg, use a local JS runtime, or update yt-dlp.")
+            expected_kind = "audio" if options["format"] in {"mp3", "wav"} else "video"
+            if platform == "YouTube" and not self.demo and not any(i["kind"] == expected_kind for i in items):
+                warnings.append("Only a thumbnail was recovered; the requested YouTube media is unavailable. Install FFmpeg, use a local JS runtime, or update yt-dlp.")
             self.update(key, state="ready", phase="Ready" + (" (demo fixtures)" if self.demo else ""), progress=100, items=items, warnings=warnings)
         except APIError as exc:
             self.update(key, state="error", phase="Failed", progress=0, error=str(exc))
@@ -382,7 +474,11 @@ class Handler(BaseHTTPRequestHandler):
             path = urlsplit(self.path).path
             body = self.body()
             if path == "/api/extract":
-                return self.json(202, {"id": self.server.store.submit(body.get("url"))})
+                if set(body) - {"url", "options"} or "url" not in body:
+                    raise APIError("Extraction accepts only url and optional export options.")
+                if "options" in body and not isinstance(body["options"], dict):
+                    raise APIError("Export options must be a JSON object.")
+                return self.json(202, {"id": self.server.store.submit(body["url"], body.get("options"))})
             match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})/download", path)
             if match:
                 key = match.group(1)

@@ -25,7 +25,7 @@ function ports(sender) {
 function storageTrap() { return new Proxy({}, { get() { throw new Error('No storage access permitted'); } }); }
 function workerHarness(sender = { id: extensionId, url: pageURL, frameId: 0 }, fetchImpl) {
   const calls = [], onConnect = event();
-  const context = { chrome: { runtime: { id: extensionId, onConnect, lastError: undefined }, storage: storageTrap() }, URL, AbortController, Uint8Array, Blob, Response, Headers, TextEncoder, btoa, atob, setTimeout, clearTimeout, console: { log() { throw new Error('No logging permitted'); } }, async fetch(url, options) { calls.push({ url, options, authorizationAtFetch: options.headers.Authorization }); return fetchImpl ? fetchImpl(url, options) : new Response('fixture'); } };
+  const context = { chrome: { runtime: { id: extensionId, onConnect, lastError: undefined }, storage: storageTrap() }, URL, AbortController, Uint8Array, Blob, Response, Headers, TextEncoder, btoa, atob, setTimeout, clearTimeout, console: { log() { throw new Error('No logging permitted'); } }, async fetch(url, options) { calls.push({ url, options, authorizationAtFetch: options.headers.Authorization, bodyAtFetch: options.body }); return fetchImpl ? fetchImpl(url, options) : new Response('fixture'); } };
   const sandbox = vm.createContext(context);
   context.importScripts = file => vm.runInContext(source('extension/' + file), sandbox);
   vm.runInContext(source('extension/background.js'), sandbox);
@@ -101,7 +101,7 @@ test('worker chunks survive Chrome JSON serialization, demand ordered acknowledg
 test('complete page/content/worker pipeline transports multichunk ZIP bytes and closes without popups', async () => {
   const bytes = new Uint8Array(120000); for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 37) % 256;
   bytes.set([80, 75, 3, 4]); // ZIP header controls survive binary transport
-  const h = workerHarness(undefined, () => new Response(bytes, { headers: { 'Content-Type': 'application/zip' } }));
+  const h = workerHarness(undefined, url => url.endsWith('/api/extract') ? new Response('{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}', {status:202,headers:{'Content-Type':'application/json'}}) : new Response(bytes, { headers: { 'Content-Type': 'application/zip' } }));
   const listeners = new Map(), posted = [];
   const window = { location: { href: pageURL, origin, hostname: 'namanguptaaaa.github.io', protocol: 'https:' }, open() { throw new Error('Extension transport must not open windows'); }, addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn); }, removeEventListener(name, fn) { listeners.get(name)?.delete(fn); }, postMessage(data, target) { assert.equal(target, origin); posted.push(data); queueMicrotask(() => { for (const fn of [...(listeners.get('message') || [])]) fn({ data, origin, source: window }); }); } };
   window.top = window;
@@ -119,10 +119,14 @@ test('complete page/content/worker pipeline transports multichunk ZIP bytes and 
   const client = window.createLocalMediaExtension(); await client.ready;
   window.postMessage({ namespace, nonce: randomUUID(), type: 'request', id: randomUUID(), path: '/api/health', method: 'GET' }, origin);
   await h.flush(); assert.equal(h.calls.length, 0);
+  const exportBody=JSON.stringify({url:'https://youtu.be/BaW_jenozKc',options:{format:'mp4',max_height:720,start_seconds:.25,end_seconds:.75}});
+  const extraction=await client.request('/api/extract',{method:'POST',body:exportBody},token);
+  assert.equal(extraction.status,202); assert.equal((await extraction.json()).id,'a'.repeat(32));
+  assert.equal(h.calls[0].bodyAtFetch,exportBody);
   const response = await client.request('/api/jobs/' + 'a'.repeat(32) + '/download', { method: 'POST', body: '{"item_ids":["1"]}' }, token);
   assert.equal(response.headers.get('Content-Type'), 'application/zip');
   assert.deepEqual(Buffer.from(await response.arrayBuffer()), Buffer.from(bytes));
-  assert.equal(posted.filter(m => m.type === 'ack').length, 3);
+  assert.equal(posted.filter(m => m.type === 'ack').length, 4);
   assert.ok(!JSON.stringify(posted.filter(m => ['headers', 'chunk', 'complete', 'ready'].includes(m.type))).includes(token));
   client.close(); await h.flush(); assert.equal(h.pair.disconnected, true);
 });
@@ -153,4 +157,19 @@ test('hosted application defaults to extension and missing extension never opens
   assert.equal(bridgeCalls, 0); assert.equal(popupCalls, 0);
   assert.equal(node('status-text').textContent, missing);
   assert.equal(node('token').value, '');
+});
+
+test('export schema agrees across Chrome JSON relay and rejects unknown/injectable fields', async () => {
+  const h = workerHarness(undefined, () => new Response('{}', { headers: { 'Content-Type': 'application/json' } }));
+  const nonce = randomUUID(); h.send({ namespace, nonce, type: 'hello' }); await h.flush();
+  const invalid = [{format: true}, {format: 'mp4;rm'}, {unknown: true}, {max_height: true}, {max_height: 999}, {audio_bitrate: false}, {format: 'wav', audio_bitrate: 128}, {format: 'mp3', max_height:720}, {format:'original',start_seconds:1}, {format:'mp4',start_seconds:2,end_seconds:1}, {start_seconds:null}, {start_seconds:86401}];
+  for (const options of invalid) h.send({ namespace, nonce, id: randomUUID(), type:'request',path:'/api/extract',method:'POST',token,body:JSON.stringify({url:'https://youtu.be/BaW_jenozKc',options}) });
+  await h.flush(); assert.equal(h.calls.length,0);
+  for (const options of [{format:'mp4',max_height:720,start_seconds:0.25,end_seconds:0.75}, {format:'mp3',audio_bitrate:192}, {format:'wav',start_seconds:0,end_seconds:1}, {}]) {
+    const id = randomUUID(); const body = JSON.stringify({url:'https://youtu.be/BaW_jenozKc',options});
+    h.send({namespace,nonce,id,type:'request',path:'/api/extract',method:'POST',token,body}); await h.flush();
+    assert.equal(h.calls.at(-1).bodyAtFetch,body);
+    h.send({namespace,nonce,id,type:'ack',seq:0}); await h.flush();
+  }
+  h.send({namespace,nonce,type:'close'}); await h.flush();
 });

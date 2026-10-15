@@ -6,10 +6,10 @@
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src http: https:; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Local Media — Private media downloader</title>
-  <link rel="stylesheet" href="styles.css?v=1.2.0">
-  <script src="extension-client.js?v=1.2.0" defer></script>
-  <script src="bridge-client.js?v=1.2.0" defer></script>
-  <script src="app.js?v=1.2.0" defer></script>
+  <link rel="stylesheet" href="styles.css?v=1.3.0">
+  <script src="extension-client.js?v=1.3.0" defer></script>
+  <script src="bridge-client.js?v=1.3.0" defer></script>
+  <script src="app.js?v=1.3.0" defer></script>
 </head>
 <body>
   <div class="shell">
@@ -21,7 +21,7 @@
         <details id="connection-panel" open><summary>Private server connection <span aria-hidden="true">↗</span></summary>
           <form id="connection-form" class="connection-form">
             <label for="connection-mode">Connection method</label><select id="connection-mode"><option value="extension">Chrome extension · in the background</option><option value="direct">Direct connection · local or private HTTPS</option><option value="bridge">Optional local bridge window</option></select>
-            <div id="extension-help" class="notice"><strong>One-time Chrome setup</strong><p>Download and unzip the extension. Open <code>chrome://extensions</code>, turn on Developer mode, choose <strong>Load unpacked</strong>, and select the extension folder. Reload this page after installation.</p><a class="text-button" href="extension.zip" download>Download Chrome extension</a></div>
+            <div id="extension-help" class="notice"><strong>One-time Chrome setup</strong><p>Download and unzip the extension. Open <code>chrome://extensions</code>, turn on Developer mode, choose <strong>Load unpacked</strong>, and select the extension folder. For an update, replace its files and click the extension’s reload button. Reload this page afterward.</p><a class="text-button" href="extension.zip" download>Download Chrome extension</a></div>
             <label for="endpoint">Server address</label><input id="endpoint" type="url" value="http://127.0.0.1:8765" spellcheck="false" autocomplete="off" required aria-describedby="server-help">
             <p id="server-help" class="hint">The extension connects to the companion on your machine at this fixed address, without an extra window.</p>
             <label class="check-label trust-label"><input id="trust-server" type="checkbox"> I control and trust this server (required for custom HTTPS hosts).</label>
@@ -30,7 +30,16 @@
           </form>
         </details>
         <div id="dependency-notice" class="notice" hidden></div>
-        <form id="extract-form" class="extract-form"><label for="media-url">Paste a media link</label><div class="url-row"><input id="media-url" type="url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false" required disabled><button id="extract" class="button primary" type="submit" disabled>Extract media <span aria-hidden="true">→</span></button></div><p class="hint">YouTube · X / Twitter · Instagram · Reddit. Some posts require cookies configured on your server.</p></form>
+        <form id="extract-form" class="extract-form"><label for="media-url">Paste a media link</label><div class="url-row"><input id="media-url" type="url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false" required disabled><button id="extract" class="button primary" type="submit" disabled>Extract media <span aria-hidden="true">→</span></button></div><p class="hint">YouTube · X / Twitter · Instagram · Reddit. Some posts require cookies configured on your server.</p>
+          <details id="download-options"><summary>Download options <span aria-hidden="true">⌄</span></summary><div class="options-body">
+            <label for="export-format">Video / audio format</label><select id="export-format"><option value="original">Original · best available video</option><option value="mp4">MP4 · compatible H.264 / AAC</option><option value="mp3">MP3 · audio only</option><option value="wav">WAV · uncompressed audio</option></select>
+            <p id="format-help" class="hint">Keep the original video without conversion. Original images are always included unchanged.</p>
+            <div id="video-quality"><label for="max-height">Maximum video resolution</label><select id="max-height"><option value="">Highest available</option><option value="360">360p</option><option value="480">480p</option><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">2160p / 4K</option><option value="4320">4320p / 8K</option></select><p class="hint">A ceiling on available source quality. Lower resolutions are not upscaled.</p></div>
+            <div id="audio-quality" hidden><label for="audio-bitrate">MP3 bitrate</label><select id="audio-bitrate"><option value="320">320 kbps</option><option value="256">256 kbps</option><option value="192">192 kbps</option><option value="128">128 kbps</option></select><p class="hint">Converting to MP3 is lossy. A higher bitrate cannot improve the source.</p></div>
+            <div class="trim-row"><div><label for="start-seconds">Start (seconds)</label><input id="start-seconds" type="number" min="0" max="86400" step="0.001" value="0" disabled></div><div><label for="end-seconds">End (seconds, optional)</label><input id="end-seconds" type="number" min="0" max="86400" step="0.001" placeholder="Full duration" disabled></div></div><p id="trim-help" class="hint">Choose MP4, MP3, or WAV to trim video/audio. Images are unaffected.</p>
+            <button id="reset-options" class="text-button" type="button">Reset to original quality</button>
+          </div></details>
+        </form>
         <div id="status" class="status" role="status" aria-live="polite"><span id="status-icon" aria-hidden="true">○</span><p id="status-text">Connect your private server to get started.</p></div>
         <div id="progress-area" hidden><progress id="progress" max="100" aria-label="Extraction progress"></progress><button id="stop-waiting" type="button" class="text-button">Stop waiting</button><p class="hint">Stopping this page’s wait does not cancel work on the server.</p></div>
         <section id="results" hidden aria-labelledby="results-title"><div class="results-heading"><div><p id="result-platform" class="eyebrow"></p><h3 id="results-title">Your media</h3></div><span id="result-count" class="badge"></span></div><div id="result-warnings" class="notice" role="status" hidden></div><div class="selection-bar"><label class="check-label"><input id="select-all" type="checkbox"> Select all</label><button id="download-selected" type="button" class="button primary">Download selected ZIP</button></div><ul id="media-list" class="media-list"></ul></section>

@@ -175,6 +175,44 @@ const delay = (ms, signal) => new Promise((resolve, reject) => {
   if (signal.aborted) abort();
 });
 
+function updateOptions() {
+  const format = $('export-format').value;
+  const original = format === 'original';
+  const audio = format === 'mp3' || format === 'wav';
+  $('video-quality').hidden = audio;
+  $('max-height').disabled = audio;
+  $('audio-quality').hidden = format !== 'mp3';
+  $('audio-bitrate').disabled = format !== 'mp3';
+  $('start-seconds').disabled = original;
+  $('end-seconds').disabled = original;
+  if (original) { $('start-seconds').value = '0'; $('end-seconds').value = ''; }
+  const help = { original: 'Keep the original video without conversion. Original images are always included unchanged.', mp4: 'MP4 converts video to H.264 and audio to AAC for compatibility. Re-encoding changes quality; original images stay unchanged.', mp3: 'Extract audio and convert it to MP3. Original images stay unchanged.', wav: 'Decode audio to uncompressed WAV. This does not improve source quality; original images stay unchanged.' };
+  $('format-help').textContent = help[format];
+  $('trim-help').textContent = original ? 'Choose MP4, MP3, or WAV to trim video/audio. Images are unaffected.' : 'Optional clip boundaries, up to 86,400 seconds. End must be after start and within the source duration. Images are unaffected.';
+}
+function extractionPayload(url) {
+  const format = $('export-format').value;
+  if (!['original', 'mp4', 'mp3', 'wav'].includes(format)) throw new Error('Choose a supported export format.');
+  const audio = format === 'mp3' || format === 'wav';
+  const height = $('max-height').value;
+  const max_height = audio || height === '' ? null : Number(height);
+  const audio_bitrate = format === 'mp3' ? Number($('audio-bitrate').value) : 320;
+  const start_seconds = secondsNumber($('start-seconds').value, 0);
+  const end_seconds = $('end-seconds').value.trim() === '' ? null : secondsNumber($('end-seconds').value);
+  if (max_height !== null && ![360, 480, 720, 1080, 1440, 2160, 4320].includes(max_height)) throw new Error('Choose a supported maximum video resolution.');
+  if (![128, 192, 256, 320].includes(audio_bitrate)) throw new Error('Choose a supported MP3 bitrate.');
+  if (!Number.isFinite(start_seconds) || start_seconds < 0 || start_seconds > 86400 || (end_seconds !== null && (!Number.isFinite(end_seconds) || end_seconds <= start_seconds || end_seconds > 86400))) throw new Error('Enter valid clip seconds: start from 0 to 86,400; end must be after start and no later than 86,400.');
+  if (format === 'original' && (start_seconds !== 0 || end_seconds !== null)) throw new Error('Choose MP4, MP3, or WAV to trim video/audio.');
+  if (format === 'original' && max_height === null) return { url };
+  return { url, options: { format, max_height, audio_bitrate, start_seconds, end_seconds } };
+}
+function secondsNumber(value, empty = NaN) { return value.trim() === '' ? empty : Number(value); }
+$('export-format').addEventListener('change', updateOptions);
+$('reset-options').addEventListener('click', () => {
+  $('export-format').value = 'original'; $('max-height').value = ''; $('audio-bitrate').value = '320'; $('start-seconds').value = '0'; $('end-seconds').value = ''; updateOptions();
+});
+updateOptions();
+
 $('extract-form').addEventListener('submit', async event => {
   event.preventDefault();
   if (busy || !connection) return;
@@ -189,7 +227,7 @@ $('extract-form').addEventListener('submit', async event => {
     $('progress-area').hidden = false;
     $('progress').removeAttribute('value');
     status('Starting extraction on your private server…');
-    const initial = await (await request('/api/extract', { method: 'POST', body: JSON.stringify({ url }), signal })).json();
+    const initial = await (await request('/api/extract', { method: 'POST', body: JSON.stringify(extractionPayload(url)), signal })).json();
     if (!initial.id) throw new Error('The server did not return a job ID.');
     while (attempt === generation) {
       const job = await (await request(`/api/jobs/${encodeURIComponent(initial.id)}`, { signal })).json();
@@ -249,10 +287,10 @@ function renderResults(job) {
     const row = document.createElement('li'); row.className = 'media-item';
     const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = true; checkbox.dataset.itemId = item.id; checkbox.setAttribute('aria-label', `Select ${item.filename}`);
     checkbox.addEventListener('change', () => { checkbox.checked ? selected.add(item.id) : selected.delete(item.id); updateSelection(); });
-    const symbol = document.createElement('span'); symbol.className = 'media-symbol'; symbol.textContent = item.kind === 'image' ? '▧' : '▷'; symbol.setAttribute('aria-hidden', 'true');
+    const symbol = document.createElement('span'); symbol.className = 'media-symbol'; symbol.textContent = item.kind === 'image' ? '▧' : item.kind === 'audio' ? '♫' : '▷'; symbol.setAttribute('aria-hidden', 'true');
     const info = document.createElement('div'); info.className = 'media-info';
     const name = document.createElement('p'); name.className = 'media-name'; name.textContent = item.filename;
-    const meta = document.createElement('p'); meta.className = 'media-meta'; meta.textContent = `${item.kind === 'image' ? 'IMAGE' : 'VIDEO'} · ${bytes(item.size)}`;
+    const meta = document.createElement('p'); meta.className = 'media-meta'; meta.textContent = `${item.kind === 'image' ? 'IMAGE' : item.kind === 'audio' ? 'AUDIO' : 'VIDEO'} · ${bytes(item.size)}`;
     info.append(name, meta);
     const button = document.createElement('button'); button.type = 'button'; button.className = 'button secondary'; button.textContent = 'Download ↓'; button.setAttribute('aria-label', `Download ${item.filename}`);
     button.addEventListener('click', () => download(`/api/jobs/${encodeURIComponent(job.id)}/files/${encodeURIComponent(item.id)}`, item.filename, {}, button));

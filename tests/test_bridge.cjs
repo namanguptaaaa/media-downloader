@@ -22,7 +22,7 @@ function harness(deferred = false) {
   const opener = { postMessage(data, target) { sent.push({ data, target }); } };
   const clock = timers();
   const window = { opener, addEventListener(name, fn) { listeners[name] = fn; }, close() {} };
-  const context = { window, document: { getElementById(id) { return elements[id] ||= { textContent: '', addEventListener() {} }; } }, localStorage: forbiddenStorage(), sessionStorage: forbiddenStorage(), console: { log() { throw new Error('No logging'); } }, AbortController, Blob, URL, ...clock,
+  const context = { window, document: { getElementById(id) { return elements[id] ||= { textContent: '', addEventListener() {} }; } }, localStorage: forbiddenStorage(), sessionStorage: forbiddenStorage(), console: { log() { throw new Error('No logging'); } }, AbortController, Blob, URL, TextEncoder, ...clock,
     async fetch(url, options) {
       calls.push({ url, options });
       if (deferred && url !== '/api/health') return new Promise((resolve, reject) => options.signal.addEventListener('abort', () => reject(new Error('Aborted')), { once: true }));
@@ -132,4 +132,17 @@ test('client uses clean popup URL, rejects spoofed response, correlates Blob and
   await assert.rejects(cancelled, { name: 'AbortError' });
   assert.equal(sent.at(-1).data.type, 'cancel');
   client.close(); assert.equal(clock.active.size, 0); assert.equal(popup.closed, true);
+});
+
+test('popup strictly validates and forwards local export options without arbitrary arguments', async () => {
+  const h=harness(); await h.event({type:'hello'});
+  const invalid=[{format:true},{format:'mp4;evil'},{unknown:1},{max_height:true},{format:'mp3',max_height:720},{format:'wav',audio_bitrate:128},{format:'original',start_seconds:1},{start_seconds:null},{format:'mp4',start_seconds:2,end_seconds:1}];
+  for(const options of invalid) await h.event({type:'request',id,path:'/api/extract',method:'POST',token,body:JSON.stringify({url:'https://youtu.be/BaW_jenozKc',options})});
+  await h.event({type:'request',id,path:'/api/extract',method:'POST',token,body:'{"url":"x","options":{"start_seconds":NaN}}'});
+  await h.event({type:'request',id,path:'/api/extract',method:'POST',token,body:'{"url":"x","options":{},"exec":"evil"}'});
+  assert.equal(h.calls.length,1);
+  const options={format:'mp4',max_height:720,start_seconds:0.25,end_seconds:0.75};
+  const body=JSON.stringify({url:'https://youtu.be/BaW_jenozKc',options});
+  await h.event({type:'request',id,path:'/api/extract',method:'POST',token,body});
+  assert.equal(h.calls[1].options.body,body);
 });

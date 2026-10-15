@@ -7,6 +7,15 @@ globalThis.MediaRelay = Object.freeze({
   maxRequests: 8,
   maxBytes: 4 * 1024 ** 3 + 1024 ** 2,
   safeId: value => typeof value === 'string' && /^[a-zA-Z0-9-]{16,80}$/.test(value),
+  validOptions(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['format', 'max_height', 'audio_bitrate', 'start_seconds', 'end_seconds'].includes(key))) return false;
+    const { format = 'original', max_height = null, audio_bitrate = 320, start_seconds = 0, end_seconds = null } = value;
+    if (!['original', 'mp4', 'mp3', 'wav'].includes(format) || (max_height !== null && ![360, 480, 720, 1080, 1440, 2160, 4320].includes(max_height)) || ![128, 192, 256, 320].includes(audio_bitrate)) return false;
+    if (!Number.isFinite(start_seconds) || start_seconds < 0 || start_seconds > 86400 || (end_seconds !== null && (!Number.isFinite(end_seconds) || end_seconds <= start_seconds || end_seconds > 86400))) return false;
+    if (['mp3', 'wav'].includes(format) && max_height !== null) return false;
+    if (format !== 'mp3' && audio_bitrate !== 320) return false;
+    return format !== 'original' || (start_seconds === 0 && end_seconds === null);
+  },
   allowedPage(value) {
     try {
       const url = new URL(value);
@@ -24,9 +33,9 @@ globalThis.MediaRelay = Object.freeze({
     if (typeof message.body !== 'string' || new TextEncoder().encode(message.body).byteLength > 8192) return false;
     try {
       const body = JSON.parse(message.body);
-      if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 1) return false;
-      if (message.path === '/api/extract') return typeof body.url === 'string' && body.url.length <= 2048;
-      return Array.isArray(body.item_ids) && body.item_ids.length > 0 && body.item_ids.length <= 100 && body.item_ids.every(id => typeof id === 'string' && /^[0-9]{1,8}$/.test(id));
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+      if (message.path === '/api/extract') return Object.keys(body).every(key => ['url', 'options'].includes(key)) && typeof body.url === 'string' && body.url.length <= 2048 && (!Object.hasOwn(body, 'options') || this.validOptions(body.options));
+      return Object.keys(body).length === 1 && Array.isArray(body.item_ids) && body.item_ids.length > 0 && body.item_ids.length <= 100 && body.item_ids.every(id => typeof id === 'string' && /^[0-9]{1,8}$/.test(id));
     } catch { return false; }
   }
 });

@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+import wave
 from unittest.mock import patch
 import zipfile
 
@@ -119,6 +120,29 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(self.request("POST", "/api/extract", {"url": "https://localhost/private"})[0], 400)
         self.assertEqual(self.request("POST", "/api/extract", None)[0], 400)
         self.assertEqual(self.request("GET", "/api/jobs/" + "0" * 32)[0], 404)
+
+    def test_real_demo_wav_clip_download_and_decode(self):
+        if not self.server.store.ffmpeg:
+            self.skipTest("Local FFmpeg unavailable")
+        status, _, body = self.request("POST", "/api/extract", {"url": "https://youtu.be/jNQXAC9IVRw", "options": {"format": "wav", "start_seconds": .2, "end_seconds": .8}})
+        self.assertEqual(status, 202)
+        key = json.loads(body)["id"]
+        for _ in range(200):
+            _, _, body = self.request("GET", "/api/jobs/" + key)
+            job = json.loads(body)
+            if job["state"] in {"ready", "error"}:
+                break
+            time.sleep(.05)
+        self.assertEqual(job["state"], "ready", job)
+        self.assertEqual(job["options"]["format"], "wav")
+        self.assertEqual({item["kind"] for item in job["items"]}, {"image", "audio"})
+        audio = next(item for item in job["items"] if item["kind"] == "audio")
+        status, _, content = self.request("GET", f"/api/jobs/{key}/files/{audio['id']}")
+        self.assertEqual(status, 200)
+        with wave.open(io.BytesIO(content)) as decoded:
+            self.assertAlmostEqual(decoded.getnframes() / decoded.getframerate(), .6, delta=.02)
+            self.assertEqual(decoded.getsampwidth(), 2)
+        self.assertTrue(job["warnings"])
 
     def test_static_traversal_rejected(self):
         self.assertEqual(self.request("GET", "/%2e%2e/server/app.py")[0], 404)
